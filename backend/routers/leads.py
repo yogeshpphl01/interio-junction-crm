@@ -8,6 +8,9 @@ from core import (
     LeadCreate, LeadUpdate, StageMoveInput, CloseLeadInput, now_iso,
     STAGES, LEAD_TYPES, BHK_TYPES, KITCHEN_LAYOUTS, LEAD_SOURCES,
     ROLE_ADMIN, ROLE_SALES,
+    # <journey-helpers>maintain lifecycle_phase / furthest_stage / journey</journey-helpers>
+    derive_lifecycle_phase, init_journey, record_stage_transition,
+    close_open_journey_entry, JOURNEY_DELIVERED_STAGE,
 )
 from audit import log_audit
 
@@ -45,6 +48,7 @@ async def create_lead(payload: LeadCreate, user: dict = Depends(get_current_user
     if payload.source not in LEAD_SOURCES:
         raise HTTPException(status_code=400, detail="Invalid source")
     assigned = payload.assigned_to or user["id"]
+    ts = now_iso()
     doc = {
         "id": str(uuid.uuid4()),
         **payload.model_dump(),
@@ -53,8 +57,12 @@ async def create_lead(payload: LeadCreate, user: dict = Depends(get_current_user
         "stage": 1,
         "status": "Active",
         "project_id": None,
-        "created_at": now_iso(),
-        "updated_at": now_iso(),
+        # <journey-init>A new lead has only enquired so far (stage 1).</journey-init>
+        "lifecycle_phase": "Enquiry",
+        "furthest_stage": 1,
+        "journey": init_journey(ts),
+        "created_at": ts,
+        "updated_at": ts,
     }
     await db.leads.insert_one(doc)
     doc.pop("_id", None)
@@ -140,13 +148,26 @@ async def close_lead(lead_id: str, payload: CloseLeadInput, request: Request, us
     if payload.status == "Lost" and not (payload.reason and payload.reason.strip()):
         raise HTTPException(status_code=400, detail="Lost reason is required")
 
-    update: dict[str, Any] = {"status": payload.status, "updated_at": now_iso()}
+    ts = now_iso()
+    update: dict[str, Any] = {"status": payload.status, "updated_at": ts}
+    # <journey-on-close>
+    #   Closing a lead also resolves its journey: Won/factory => Completed,
+    #   Lost => Dropped (we remember the stage + reason they dropped at),
+    #   On-hold => paused, Active => reopened (clear drop-off markers).
+    # </journey-on-close>
     if payload.status == "Lost":
         update["lost_reason"] = payload.reason.strip()
-        update["closed_at"] = now_iso()
+        update["closed_at"] = ts
+        update["lifecycle_phase"] = "Dropped"
+        update["dropped_stage"] = int(lead.get("furthest_stage") or lead.get("stage") or 1)
+        update["dropped_at"] = ts
+        update["dropped_reason"] = payload.reason.strip()
+        update["journey"] = close_open_journey_entry(lead.get("journey"), ts)
     elif payload.status == "Won":
         update["won_reason"] = (payload.reason or "").strip() or None
-        update["closed_at"] = now_iso()
+        update["closed_at"] = ts
+        update["lifecycle_phase"] = "Completed"
+        update["journey"] = close_open_journey_entry(lead.get("journey"), ts)
         if payload.won_value is not None:
             update["won_value"] = float(payload.won_value)
             if lead.get("project_id"):
@@ -156,11 +177,17 @@ async def close_lead(lead_id: str, payload: CloseLeadInput, request: Request, us
                 )
     elif payload.status == "On-hold":
         update["hold_reason"] = (payload.reason or "").strip() or None
+        update["lifecycle_phase"] = "On-hold"
     elif payload.status == "Active":
         update["lost_reason"] = None
         update["won_reason"] = None
         update["hold_reason"] = None
         update["closed_at"] = None
+        # Reopening: recompute the bucket from the current stage, clear drop-off.
+        update["lifecycle_phase"] = derive_lifecycle_phase(int(lead.get("stage") or 1), "Active")
+        update["dropped_stage"] = None
+        update["dropped_at"] = None
+        update["dropped_reason"] = None
 
     await db.leads.update_one({"id": lead_id}, {"$set": update})
 
@@ -212,7 +239,19 @@ async def move_lead(lead_id: str, payload: StageMoveInput, user: dict = Depends(
         raise HTTPException(status_code=409, detail=reason)
 
     from_stage = lead["stage"]
-    update: dict[str, Any] = {"stage": to, "updated_at": now_iso()}
+    ts = now_iso()
+    update: dict[str, Any] = {"stage": to, "updated_at": ts}
+
+    # <journey-tracking>
+    #   Record the stage transition, bump the furthest stage ever reached, and
+    #   recompute the high-level lifecycle bucket. Stamp delivery time when the
+    #   lead reaches the factory stage (the end of the journey).
+    # </journey-tracking>
+    update["journey"] = record_stage_transition(lead.get("journey"), to, ts)
+    update["furthest_stage"] = max(int(lead.get("furthest_stage") or lead.get("stage") or 1), to)
+    update["lifecycle_phase"] = derive_lifecycle_phase(to, lead.get("status", "Active"))
+    if to >= JOURNEY_DELIVERED_STAGE and not lead.get("delivered_at"):
+        update["delivered_at"] = ts
 
     if to >= 3 and not lead.get("project_id"):
         code = await next_project_code()

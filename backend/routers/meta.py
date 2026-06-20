@@ -2,7 +2,7 @@
 from fastapi import APIRouter
 from core import (
     STAGES, LEAD_TYPES, BHK_TYPES, KITCHEN_LAYOUTS, LEAD_SOURCES,
-    LEAD_STATUSES, DOC_TYPES, STAGE_WIN_RATE,
+    LEAD_STATUSES, DOC_TYPES, STAGE_WIN_RATE, LEAD_LIFECYCLE_PHASES,
 )
 from scoring import DEFAULT_WEIGHTS
 
@@ -23,6 +23,7 @@ async def meta():
         "kitchen_layouts": KITCHEN_LAYOUTS,
         "lead_sources": LEAD_SOURCES,
         "lead_statuses": LEAD_STATUSES,
+        "lifecycle_phases": LEAD_LIFECYCLE_PHASES,
         "doc_types": DOC_TYPES,
         "stage_win_rate": STAGE_WIN_RATE,
         "default_weights": DEFAULT_WEIGHTS,

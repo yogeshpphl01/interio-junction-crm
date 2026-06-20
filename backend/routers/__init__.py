@@ -13,10 +13,12 @@ from .automations import router as automations_router
 from .analytics import router as analytics_router
 from .audit_routes import router as audit_router
 from .notifications_routes import router as notifications_router
+from .imports import router as imports_router  # NEW: Excel/Meta lead import
 
 ALL_ROUTERS = [
     meta_router, auth_router, users_router, leads_router,
     measurements_router, revisions_router, payments_router,
     activities_router, documents_router, scoring_router,
     automations_router, analytics_router, audit_router, notifications_router,
+    imports_router,
 ]

@@ -26,6 +26,7 @@ from pydantic import BaseModel, EmailStr
 from auth_utils import decode_token, extract_token
 from scoring import compute_score, DEFAULT_WEIGHTS
 from database import PostgresDatabase
+from pg_schema import LIFECYCLE_PHASES
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +52,15 @@ STAGE_WIN_RATE = {1: 0.10, 2: 0.25, 3: 0.45, 4: 0.65, 5: 0.85, 6: 1.0}
 LEAD_TYPES = ["Retail Client", "Architect", "Interior Designer", "Builder"]
 BHK_TYPES = ["1 BHK", "2 BHK", "3 BHK", "4 BHK", "5 BHK", "Villa"]
 KITCHEN_LAYOUTS = ["L-shape", "U-shape", "Parallel", "Straight", "Island"]
-LEAD_SOURCES = ["Website", "Referral", "Walk-in", "Instagram", "Architect Partner", "Google", "Other"]
+LEAD_SOURCES = ["Website", "Referral", "Walk-in", "Instagram", "Facebook", "Architect Partner", "Google", "Other"]
 LEAD_STATUSES = ["Active", "Won", "Lost", "On-hold"]
+# <constant name="LIFECYCLE_PHASES">
+#   Imported from pg_schema (single source of truth). High-level journey buckets
+#   exposed to the frontend via /meta so the UI can render/filter by phase.
+# </constant>
+LEAD_LIFECYCLE_PHASES = LIFECYCLE_PHASES
+# Stage at which the project is considered delivered (sent to factory production).
+JOURNEY_DELIVERED_STAGE = 6
 DOC_TYPES = ["Site Measurement Sheet", "2D CAD", "3D Render", "Quotation PDF", "Site Photo", "Other"]
 
 ROLE_ADMIN = "admin"
@@ -299,6 +307,79 @@ async def ensure_project_visible(user: dict, project_id: str) -> None:
         if has_ms == 0:
             return
     raise HTTPException(status_code=403, detail="Not allowed for this project")
+
+
+# ============================================================================
+# <section name="Lead journey / lifecycle tracking">
+#   <purpose>
+#     Track each lead's path through our funnel so we can answer the core
+#     business question: did this person ONLY enquire (and never return), did
+#     they walk into the MIDDLE of our journey and then not proceed, or did they
+#     COMPLETE the whole journey (project delivered)?
+#   </purpose>
+#   <two-models>
+#     1) High-level bucket  -> `lifecycle_phase` (Enquiry / In-Progress /
+#        Completed / Dropped / On-hold) + `furthest_stage` reached.
+#     2) Granular per-stage -> `journey` (a JSONB list with entered_at/exited_at
+#        for every stage) + `dropped_stage` / `dropped_at` / `dropped_reason`.
+#   </two-models>
+# ============================================================================
+def stage_short(stage: int) -> str:
+    """Human-readable short label for a pipeline stage id."""
+    for s in STAGES:
+        if s["id"] == stage:
+            return s["short"]
+    return f"Stage {stage}"
+
+
+def derive_lifecycle_phase(stage: int, status: str) -> str:
+    """
+    <function name="derive_lifecycle_phase">
+      Map (stage, status) -> one high-level lifecycle bucket.
+      Won or reaching the factory stage = Completed; Lost = Dropped; a brand-new
+      Active lead still at stage 1 = Enquiry; anything in between = In-Progress.
+    </function>
+    """
+    if status == "Won" or (status == "Active" and stage >= JOURNEY_DELIVERED_STAGE):
+        return "Completed"
+    if status == "Lost":
+        return "Dropped"
+    if status == "On-hold":
+        return "On-hold"
+    if (stage or 1) <= 1:
+        return "Enquiry"
+    return "In-Progress"
+
+
+def _journey_entry(stage: int, ts: str) -> dict:
+    """One per-stage record in the journey timeline."""
+    return {"stage": stage, "stage_name": stage_short(stage), "entered_at": ts, "exited_at": None}
+
+
+def init_journey(ts: str) -> list[dict]:
+    """Journey for a brand-new lead: it has just entered stage 1 (Captured)."""
+    return [_journey_entry(1, ts)]
+
+
+def record_stage_transition(journey: Optional[list], to_stage: int, ts: str) -> list[dict]:
+    """Close the currently-open stage entry and open a new one for `to_stage`."""
+    out = [dict(e) for e in (journey or [])]
+    for entry in reversed(out):
+        if entry.get("exited_at") is None:
+            entry["exited_at"] = ts
+            break
+    out.append(_journey_entry(to_stage, ts))
+    return out
+
+
+def close_open_journey_entry(journey: Optional[list], ts: str) -> list[dict]:
+    """Stamp exited_at on the last open entry (used when a lead is Lost/Won)."""
+    out = [dict(e) for e in (journey or [])]
+    for entry in reversed(out):
+        if entry.get("exited_at") is None:
+            entry["exited_at"] = ts
+            break
+    return out
 
 
 # ---------- Domain helpers ----------
