@@ -1,0 +1,44 @@
+"""Audit log endpoints (admin)."""
+from typing import Optional, Any
+from fastapi import APIRouter, Depends
+from core import db, require_roles, ROLE_ADMIN
+
+router = APIRouter()
+
+
+@router.get("/audit")
+async def list_audit(
+    user: dict = Depends(require_roles(ROLE_ADMIN)),
+    action: Optional[str] = None,
+    actor_id: Optional[str] = None,
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    filt: dict[str, Any] = {}
+    if action:
+        filt["action"] = action
+    if actor_id:
+        filt["actor_id"] = actor_id
+    if target_type:
+        filt["target_type"] = target_type
+    if target_id:
+        filt["target_id"] = target_id
+    if q:
+        filt["$or"] = [
+            {"actor_name": {"$regex": q, "$options": "i"}},
+            {"actor_email": {"$regex": q, "$options": "i"}},
+            {"target_label": {"$regex": q, "$options": "i"}},
+            {"action": {"$regex": q, "$options": "i"}},
+        ]
+    total = await db.audit_log.count_documents(filt)
+    rows = await db.audit_log.find(filt, {"_id": 0}).sort("created_at", -1).skip(offset).limit(min(limit, 500)).to_list(500)
+    return {"total": total, "limit": limit, "offset": offset, "rows": rows}
+
+
+@router.get("/audit/actions")
+async def list_audit_actions(user: dict = Depends(require_roles(ROLE_ADMIN))):
+    rows = await db.audit_log.distinct("action")
+    return {"actions": sorted(rows)}

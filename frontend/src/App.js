@@ -11,6 +11,8 @@ import SiteVisits from "@/pages/SiteVisits";
 import LeadScoring from "@/pages/LeadScoring";
 import Automations from "@/pages/Automations";
 import Settings from "@/pages/Settings";
+import Audit from "@/pages/Audit";
+import NotificationSettings from "@/pages/NotificationSettings";
 
 export default function App() {
   return (
@@ -59,6 +61,22 @@ export default function App() {
               element={
                 <ProtectedRoute roles={["admin"]}>
                   <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/audit"
+              element={
+                <ProtectedRoute roles={["admin"]}>
+                  <Audit />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/notifications"
+              element={
+                <ProtectedRoute roles={["admin"]}>
+                  <NotificationSettings />
                 </ProtectedRoute>
               }
             />

@@ -5,7 +5,7 @@ import { ROLE_LABEL, ROLE_COLOR } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import {
   LayoutDashboard, Columns3, Users, Ruler, BarChart3, Settings, LogOut,
-  Sparkles, Workflow, Menu, X,
+  Sparkles, Workflow, Menu, X, ScrollText, Bell,
 } from "lucide-react";
 
 const NAV = [
@@ -15,7 +15,9 @@ const NAV = [
   { to: "/site-visits", label: "Site Visits", icon: Ruler, roles: ["admin", "sales", "supervisor"] },
   { to: "/scoring", label: "Lead Scoring", icon: Sparkles, roles: ["admin", "sales"] },
   { to: "/automations", label: "Automations", icon: Workflow, roles: ["admin", "sales"] },
+  { to: "/notifications", label: "Notifications", icon: Bell, roles: ["admin"] },
   { to: "/analytics", label: "Analytics", icon: BarChart3, roles: ["admin"] },
+  { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["admin"] },
   { to: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
 ];
 
@@ -149,7 +151,9 @@ function getTitle(path) {
   if (path.startsWith("/site-visits")) return "Site Visits";
   if (path.startsWith("/scoring")) return "Lead Scoring";
   if (path.startsWith("/automations")) return "Automations";
+  if (path.startsWith("/notifications")) return "Notifications";
   if (path.startsWith("/analytics")) return "Analytics";
+  if (path.startsWith("/audit")) return "Audit Log";
   if (path.startsWith("/settings")) return "Settings";
   return "Interio Junction";
 }

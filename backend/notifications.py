@@ -1,19 +1,28 @@
-"""Email notifications via Resend. Falls back to no-op when not configured."""
+"""Email notifications via SMTP (Hostinger by default). No-op when unconfigured."""
 import os
+import ssl
+import smtplib
 import asyncio
 import logging
-from datetime import datetime, timezone
+from email.message import EmailMessage
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _is_configured() -> bool:
-    return bool(os.environ.get("RESEND_API_KEY"))
+    return bool(
+        os.environ.get("SMTP_HOST")
+        and os.environ.get("SMTP_USER")
+        and os.environ.get("SMTP_PASSWORD")
+        and os.environ.get("SENDER_EMAIL")
+    )
 
 
 def _from_address() -> str:
-    return os.environ.get("SENDER_EMAIL") or "onboarding@resend.dev"
+    name = os.environ.get("SENDER_NAME") or "Interio Junction"
+    email = os.environ.get("SENDER_EMAIL") or os.environ.get("SMTP_USER", "")
+    return f"{name} <{email}>"
 
 
 def _format_amount_inr(n) -> str:
@@ -28,14 +37,7 @@ def _format_amount_inr(n) -> str:
     return f"₹ {n:,.0f}"
 
 
-def _email_shell(title: str, body_html: str, cta_label: Optional[str] = None, cta_url: Optional[str] = None) -> str:
-    cta = ""
-    if cta_label and cta_url:
-        cta = f"""
-        <tr><td style="padding:8px 0 24px 0;">
-          <a href="{cta_url}" style="background:#C2683D;color:#FFFFFF;text-decoration:none;display:inline-block;padding:10px 18px;border-radius:6px;font-weight:600;font-family:Helvetica,Arial,sans-serif;font-size:13px;">{cta_label}</a>
-        </td></tr>
-        """
+def _email_shell(title: str, body_html: str) -> str:
     return f"""
     <html><body style="margin:0;padding:0;background:#F6F2EB;font-family:Helvetica,Arial,sans-serif;color:#2A2421;">
       <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F6F2EB;padding:24px 0;">
@@ -47,7 +49,6 @@ def _email_shell(title: str, body_html: str, cta_label: Optional[str] = None, ct
             <tr><td style="padding:24px;">
               <h1 style="margin:0 0 12px 0;font-size:22px;color:#2A2421;font-weight:600;">{title}</h1>
               {body_html}
-              {cta}
               <p style="margin:24px 0 0 0;color:#8A817C;font-size:11px;line-height:1.6;">Automated message from Interio Junction. Reply to your account manager if you have questions.</p>
             </td></tr>
           </table>
@@ -73,25 +74,45 @@ async def _resolve_recipients(db, lead: Optional[dict], extra: Optional[dict] = 
     admin_email = s.get("admin_email") or os.environ.get("ADMIN_EMAIL")
     if admin_email and admin_email not in recipients:
         recipients.append(admin_email)
-    if extra and extra.get("extra_email") and extra["extra_email"] not in recipients:
-        recipients.append(extra["extra_email"])
     return recipients
 
 
-async def _send_via_resend(recipients: list[str], subject: str, html: str) -> tuple[bool, str]:
+def _send_smtp_sync(recipients: list[str], subject: str, html: str) -> tuple[bool, str]:
     if not _is_configured():
-        return False, "RESEND_API_KEY not configured"
+        return False, "SMTP not configured"
     if not recipients:
         return False, "No recipients"
+    host = os.environ["SMTP_HOST"]
+    port = int(os.environ.get("SMTP_PORT", "465"))
+    user = os.environ["SMTP_USER"]
+    password = os.environ["SMTP_PASSWORD"]
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = _from_address()
+    msg["To"] = ", ".join(recipients)
+    msg.set_content("This message contains HTML. Please use an HTML capable email client.")
+    msg.add_alternative(html, subtype="html")
     try:
-        import resend
-        resend.api_key = os.environ["RESEND_API_KEY"]
-        params = {"from": _from_address(), "to": recipients, "subject": subject, "html": html}
-        result = await asyncio.to_thread(resend.Emails.send, params)
-        return True, result.get("id") if isinstance(result, dict) else str(result)
+        ctx = ssl.create_default_context()
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, context=ctx, timeout=20) as s:
+                s.login(user, password)
+                s.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port, timeout=20) as s:
+                s.ehlo()
+                s.starttls(context=ctx)
+                s.ehlo()
+                s.login(user, password)
+                s.send_message(msg)
+        return True, f"sent to {len(recipients)} recipient(s)"
     except Exception as e:
-        logger.warning(f"Resend send failed: {e}")
+        logger.warning(f"SMTP send failed: {e}")
         return False, str(e)
+
+
+async def _send_email(recipients: list[str], subject: str, html: str) -> tuple[bool, str]:
+    return await asyncio.to_thread(_send_smtp_sync, recipients, subject, html)
 
 
 async def _log_outcome(db, event: str, recipients: list[str], ok: bool, info: str, lead_id: Optional[str]) -> None:
@@ -108,7 +129,7 @@ async def _log_outcome(db, event: str, recipients: list[str], ok: bool, info: st
 
 EVENT_TITLES = {
     "sla_breach_48h": "SLA breach — lead idle 48 hours",
-    "escalate_hot_lead": "🔥 Hot lead untouched — escalation",
+    "escalate_hot_lead": "Hot lead untouched — escalation",
     "notify_designer_revision": "Revision requested on your design",
 }
 
@@ -125,14 +146,10 @@ def _event_body(event: str, lead: Optional[dict], extra: Optional[dict]) -> str:
             <strong>{name}</strong> has had no activity for 48 hours and is still Active in your pipeline.
           </p>
           <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top:1px solid #E2DCD0;border-bottom:1px solid #E2DCD0;margin:12px 0;">
-            <tr>
-              <td style="padding:8px 0;font-size:12px;color:#8A817C;">Stage</td>
-              <td style="padding:8px 0;font-size:13px;text-align:right;color:#2A2421;font-weight:600;">{stage}</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;font-size:12px;color:#8A817C;">Budget</td>
-              <td style="padding:8px 0;font-size:13px;text-align:right;color:#2A2421;font-weight:600;">{budget}</td>
-            </tr>
+            <tr><td style="padding:8px 0;font-size:12px;color:#8A817C;">Stage</td>
+                <td style="padding:8px 0;font-size:13px;text-align:right;color:#2A2421;font-weight:600;">{stage}</td></tr>
+            <tr><td style="padding:8px 0;font-size:12px;color:#8A817C;">Budget</td>
+                <td style="padding:8px 0;font-size:13px;text-align:right;color:#2A2421;font-weight:600;">{budget}</td></tr>
           </table>
           <p style="margin:0;font-size:13px;color:#5C534D;line-height:1.6;">Reach out today to keep the deal warm.</p>
         """
@@ -145,9 +162,10 @@ def _event_body(event: str, lead: Optional[dict], extra: Optional[dict]) -> str:
           <p style="margin:0 0 12px 0;font-size:13px;color:#5C534D;line-height:1.6;">Budget {budget} · Stage {stage}. Recommended: a call within the next 2 hours.</p>
         """
     if event == "notify_designer_revision":
+        lead_name = (extra or {}).get("lead", {}).get("full_name", "—")
         return f"""
           <p style="margin:0 0 12px 0;font-size:14px;line-height:1.6;">
-            Revision <strong>R{rev.get('revision_number', '?')}</strong> on project <strong>{(extra or {}).get('lead', {}).get('full_name', '—')}</strong> was marked <strong>Revision Requested</strong>.
+            Revision <strong>R{rev.get('revision_number', '?')}</strong> on project <strong>{lead_name}</strong> was marked <strong>Revision Requested</strong>.
           </p>
           <p style="margin:0 0 12px 0;font-size:13px;color:#5C534D;line-height:1.6;">Client feedback:<br/><em>{rev.get('client_feedback') or '—'}</em></p>
         """
@@ -171,21 +189,21 @@ async def dispatch_event(db, event: str, lead_id: Optional[str], extra: Optional
 
     if event == "notify_designer_revision":
         designer = (extra or {}).get("designer") or {}
-        if designer.get("email"):
-            recipients = list(dict.fromkeys([designer["email"]] + recipients))
+        if designer.get("email") and designer["email"] not in recipients:
+            recipients.insert(0, designer["email"])
 
     title = EVENT_TITLES.get(event, event)
     body = _event_body(event, lead, extra)
     html = _email_shell(title, body)
-    ok, info = await _send_via_resend(recipients, title, html)
+    ok, info = await _send_email(recipients, title, html)
     await _log_outcome(db, event, recipients, ok, info, lead_id)
 
 
 async def send_test_email(db, to: str) -> tuple[bool, str]:
     html = _email_shell(
         "Test email from Interio Junction",
-        "<p style='font-size:14px;line-height:1.6;'>If you're seeing this, Resend is configured correctly. Your CRM will use this address to deliver SLA + Hot-lead alerts.</p>",
+        "<p style='font-size:14px;line-height:1.6;'>If you're seeing this, your SMTP setup is wired up correctly. Your CRM will use this address to deliver SLA + Hot-lead alerts and revision notifications.</p>",
     )
-    ok, info = await _send_via_resend([to], "Interio Junction · Test notification", html)
+    ok, info = await _send_email([to], "Interio Junction · Test notification", html)
     await _log_outcome(db, "test", [to], ok, info, None)
     return ok, info

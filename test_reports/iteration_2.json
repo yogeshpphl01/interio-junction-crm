@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 2 — tested refactored backend + 3 new features (close workflow, audit log, SMTP notifications). Backend: 56/56 executed pytest tests pass (28 new + 28 regression, 4 skipped state-dependent). Frontend: Audit page, Notifications page, and admin role-based nav work. Sales role correctly does NOT see Notifications/Audit. CRITICAL BLOCKER: LeadDetail page crashes with ReferenceError 'CloseStatusButton is not defined' for admin/sales — also ClosedBanner is undefined. Both are referenced in /app/frontend/src/pages/LeadDetail.jsx but never imported or implemented. This breaks the entire Close-Lead UX flow and the lead detail view for admin/sales.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/notifications/settings", "issue": "Audit log uses action='scoring.weights_saved' when saving notification settings — should be 'notifications.settings_saved' for accurate audit vocabulary. See routers/notifications_routes.py:49."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "LeadDetail.jsx", "issue": "ReferenceError: CloseStatusButton is not defined — component is rendered (line 91) but never imported/defined. Crashes entire LeadDetail page for admin/sales (Uncaught runtime error overlay). Sidekick: ClosedBanner (line 98) also undefined; will crash for any role if lead status is Won/Lost/On-hold.", "selector": "[data-testid=\"lead-title\"]", "priority": "CRITICAL"},
+      {"component": "AppShell sidebar", "issue": "For admin at 1920x1080 viewport, 'Audit Log' nav item is in DOM but renders below the visible area of the sidebar (10 nav items overflow). User must scroll the sidebar to see it. Not a blocker (clickable via direct URL) but a UX issue.", "selector": "[data-testid=\"nav-audit\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Close lead", "issue": "Close-lead button (data-testid=close-lead-btn) is missing from the page entirely — only the not-defined CloseStatusButton was supposed to render it. Cannot test the modal, lost preset, won value, reopen, or banner flows end-to-end from the UI until the component is implemented.", "affected_selectors": ["close-lead-btn", "closed-banner", "close-lead-modal"]}
+    ],
+    "design_issues": [
+      {"screen": "Command Center / Lead Scoring", "issues": ["Recharts still emits 'width(-1) height(-1)' warnings on first paint — same as iteration 1, non-blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/test_crm_backend.py",
+    "/app/test_reports/pytest/pytest_iteration2.xml"
+  ],
+  "action_items": [
+    "[BLOCKER] Implement and import CloseStatusButton and ClosedBanner components in /app/frontend/src/pages/LeadDetail.jsx. CloseStatusButton must render a <button data-testid=\"close-lead-btn\"> that calls onOpen, plus a 'Reopen' variant when status != 'Active'. ClosedBanner must render <div data-testid=\"closed-banner\"> showing status + reason (lost_reason / won_reason / hold_reason) + closed_at. Until fixed the entire lead-detail view crashes for admin/sales.",
+    "Change notification-settings save audit action from 'scoring.weights_saved' to 'notifications.settings_saved' (routers/notifications_routes.py:49).",
+    "Sidebar overflow: either make /sidebar scrollable (overflow-y:auto) or collapse less-frequent admin items behind a group — at 10 items 'Audit Log' and 'Settings' fall below the fold at 1080px.",
+    "Optional pre-deploy: replace CORS_ORIGINS='*' default with explicit prod origin list, move JWT_SECRET to secret manager (still hardcoded in backend/.env)."
+  ],
+  "critical_code_review_comments": [
+    "LeadDetail.jsx: dead JSX referencing two undefined identifiers — should have failed at code review / lint. Recommend adding eslint rule 'no-undef' (currently disabled via react-scripts default would catch this). Run `yarn lint` in CI.",
+    "routers/notifications_routes.py:49 hard-codes the audit action string 'scoring.weights_saved' — copy/paste bug.",
+    "/api/notifications/test currently sends a REAL SMTP email on every call with no rate limiting and no captcha — admin-only protects unauthenticated abuse, but an admin token leak = unbounded outbound SMTP.",
+    "CloseLeadInput.reason has default '' but route only validates strip() for Lost; Won/On-hold accept empty reason and persist None — fine, but document the contract.",
+    "Audit log endpoints have no max-limit floor (limit=0 currently allowed, returns []); not a security issue but worth clamping to 1..500.",
+    "backend/.env contains SMTP_PASSWORD and JWT_SECRET in plaintext — flag for deployment_agent to migrate to secret manager."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py (new, 28 tests)"
+  ],
+  "success_rate": {"backend": "100% (56/56 executed, 4 state-skipped)", "frontend": "Audit + Notifications + role nav: PASS. LeadDetail / Close-lead workflow: BLOCKED by missing components."},
+  "test_credentials": "admin@interiojunction.com / interio2026 — all 4 role accounts verified via API. Default password interio2026.",
+  "seed_data_creation": "Mutated some seeded leads (Lost↔Active toggles, Won with contract_value=1234567 then reopened, On-hold↔Active). Uploaded TEST regress.txt document. Saved notification settings with admin_email=care@interiojunction.in. Created several audit log rows. State will recover on next test run because tests reopen leads at the end.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Backend new endpoints fully covered by /app/backend/tests/test_new_features.py — re-run with `pytest backend/tests/ -v`. Real SMTP test_email DOES send a real email to care@interiojunction.in on each test run — consider mocking for CI. After main agent implements CloseStatusButton + ClosedBanner, re-run frontend Playwright on /leads/{id} to verify: (1) close-lead-btn visible for admin/sales not designer/supervisor, (2) modal opens with close-status-won/lost/on-hold, (3) Lost requires reason + lost-preset dropdown, (4) closed-banner shows after submit, (5) Reopen clears banner. Sidebar nav-audit clickable via force=True but not visible on 1080p — verify after sidebar overflow fix.",
+  "rca_of_the_issue": "ROOT CAUSE: /app/frontend/src/pages/LeadDetail.jsx lines 91 and 98 reference <CloseStatusButton/> and <ClosedBanner/> but neither component is defined in the file (greps confirm no function/const/import declarations) and CloseLeadModal.jsx only exports the modal. REPRO: login as admin → /pipeline → click any lead card → red 'Uncaught runtime errors' overlay with 'ReferenceError: CloseStatusButton is not defined at LeadDetail'. MITIGATION: main agent must implement both components (or move their JSX inline) and import. This is a feature gap, not a test infrastructure bug — testing agent did not fix per <Fix Scope> (business logic / missing component implementations are E1's responsibility)."
+}

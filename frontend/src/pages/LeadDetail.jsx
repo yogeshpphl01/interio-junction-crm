@@ -8,7 +8,9 @@ import { toast, Toaster } from "sonner";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Upload, Download,
   Plus, Pencil, Phone, Mail, MapPin, Calendar, Ruler, Layers, IndianRupee,
+  Trophy, XCircle, PauseCircle, RotateCcw,
 } from "lucide-react";
+import CloseLeadModal from "@/components/CloseLeadModal";
 
 export default function LeadDetail() {
   const { id } = useParams();
@@ -16,6 +18,7 @@ export default function LeadDetail() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState("");
+  const [closing, setClosing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,8 +86,17 @@ export default function LeadDetail() {
             <div className="text-[10px] uppercase tracking-[0.18em] text-ink-muted">Tentative budget</div>
             <div className="font-serif text-3xl text-ink">{formatINR(data.tentative_budget)}</div>
             <div className="text-xs text-ink-muted mt-0.5">{formatINRFull(data.tentative_budget)}</div>
+            {isAdminOrSales && (
+              <div className="mt-3 flex justify-end">
+                <CloseStatusButton lead={data} onOpen={() => setClosing(true)} />
+              </div>
+            )}
           </div>
         </div>
+
+        {(data.status === "Won" || data.status === "Lost" || data.status === "On-hold") && (
+          <ClosedBanner lead={data} />
+        )}
 
         <div className="mt-8 pt-2">
           <Stepper current={data.stage} />
