@@ -7,6 +7,27 @@ export const STAGES = [
   { id: 6, name: "Sent to Factory Production", short: "Factory", color: "#4A5D23" },
 ];
 
+/*
+  <constant name="LIFECYCLE">
+    High-level journey buckets (mirrors backend pg_schema.LIFECYCLE_PHASES).
+    Used to colour-code where a lead sits in their journey with us:
+      Enquiry      = only enquired so far
+      In-Progress  = walking through the middle of the pipeline
+      Completed    = full journey done (project sent to factory / delivered)
+      Dropped      = enquired/progressed then did not proceed (Lost / cold)
+      On-hold      = paused
+  </constant>
+*/
+export const LIFECYCLE = [
+  { key: "Enquiry", label: "Enquiry", color: "#D4A373" },
+  { key: "In-Progress", label: "In-Progress", color: "#9C6644" },
+  { key: "Completed", label: "Completed", color: "#4A5D23" },
+  { key: "Dropped", label: "Dropped", color: "#A95A3F" },
+  { key: "On-hold", label: "On-hold", color: "#6B705C" },
+];
+
+export const LIFECYCLE_COLOR = LIFECYCLE.reduce((m, p) => ((m[p.key] = p.color), m), {});
+
 export const ROLE_LABEL = {
   admin: "Admin / CEO",
   sales: "Sales Executive",

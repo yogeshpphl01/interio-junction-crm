@@ -12,6 +12,34 @@ def _iso(dt: datetime) -> str:
     return dt.replace(microsecond=0).isoformat()
 
 
+# <journey-seed>
+#   Short stage labels + a builder for the per-stage journey timeline, so seeded
+#   leads carry the same lifecycle/journey data that live leads accrue.
+# </journey-seed>
+STAGE_SHORT = {1: "Captured", 2: "Consultation", 3: "Site Measurement", 4: "Design", 5: "Quotation", 6: "Factory"}
+
+
+def _seed_journey(created: datetime, current_stage: int) -> list[dict]:
+    """Build a plausible stage-by-stage journey for a seeded lead."""
+    out = []
+    for s in range(1, current_stage + 1):
+        out.append({
+            "stage": s,
+            "stage_name": STAGE_SHORT.get(s, f"Stage {s}"),
+            "entered_at": _iso(created + timedelta(days=s - 1)),
+            "exited_at": _iso(created + timedelta(days=s)) if s < current_stage else None,
+        })
+    return out
+
+
+def _seed_lifecycle(stage: int) -> str:
+    if stage >= 6:
+        return "Completed"
+    if stage >= 2:
+        return "In-Progress"
+    return "Enquiry"
+
+
 SEED_USERS = [
     {
         "email": os.environ.get("ADMIN_EMAIL", "admin@interiojunction.com"),
@@ -206,6 +234,11 @@ async def seed_leads(db, email_to_id: dict[str, str]) -> None:
             "assigned_to": sales_id,
             "created_by": admin_id,
             "project_id": None,
+            # <journey-fields>seed the lifecycle bucket + per-stage timeline</journey-fields>
+            "lifecycle_phase": _seed_lifecycle(lead["stage"]),
+            "furthest_stage": lead["stage"],
+            "journey": _seed_journey(created, lead["stage"]),
+            "delivered_at": _iso(now - timedelta(days=2)) if lead["stage"] >= 6 else None,
             "created_at": _iso(created),
             "updated_at": _iso(updated),
         }

@@ -1,4 +1,10 @@
-"""Lead activities (timeline entries)."""
+"""
+<module name="routers/activities" layer="api">
+  <purpose>Append a timeline entry (Call / Note / etc.) to a lead the caller can
+  see, and bump the lead's updated_at (which feeds the recency score signal).</purpose>
+  <endpoints>POST /api/activities -> create one activity on a visible lead.</endpoints>
+</module>
+"""
 import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from core import db, get_current_user, ensure_lead_visible, ActivityInput, now_iso

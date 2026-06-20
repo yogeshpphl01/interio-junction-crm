@@ -1,3 +1,10 @@
+/*
+  <component name="CloseLeadModal" layer="frontend">
+    <purpose>Capture a lead outcome — Won / Lost / On-hold (or reopen to Active) —
+    via POST /leads/{id}/close. A Lost reason is required; Won can record a value.
+    This is what drives the lead's lifecycle bucket to Completed / Dropped.</purpose>
+  </component>
+*/
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";

@@ -1,3 +1,10 @@
+/*
+  <page name="Pipeline" route="/pipeline">
+    <purpose>The 6-column Kanban board. Native HTML5 drag-and-drop moves a lead
+    between stages via POST /leads/{id}/move; blueprint gates are pre-checked with
+    /leads/{id}/check-gate. Includes search + the manual "New Lead" modal.</purpose>
+  </page>
+*/
 import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";

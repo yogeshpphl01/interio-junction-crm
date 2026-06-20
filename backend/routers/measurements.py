@@ -1,4 +1,15 @@
-"""Site measurements."""
+"""
+<module name="routers/measurements" layer="api">
+  <purpose>Site measurements per project (the gate for moving to Design: at
+  least one Completed measurement is required by evaluate_gate).</purpose>
+  <endpoints>
+    POST  /api/measurements           -> create (admin/sales/supervisor).
+    PATCH /api/measurements/{ms_id}    -> update; supervisors only their own.
+    GET   /api/measurements           -> list, role-scoped + enriched with
+                                          project / lead / supervisor.
+  </endpoints>
+</module>
+"""
 import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from core import (

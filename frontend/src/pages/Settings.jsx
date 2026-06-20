@@ -1,3 +1,9 @@
+/*
+  <page name="Settings" route="/settings" access="admin">
+    <purpose>User management — list users (GET /users) and create new ones
+    (POST /users) with role, phone and an optional password.</purpose>
+  </page>
+*/
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { ROLE_LABEL, ROLE_COLOR } from "@/lib/constants";

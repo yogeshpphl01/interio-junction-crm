@@ -24,6 +24,7 @@ ACTIONS = {
     "payment.created", "payment.updated", "payment.paid",
     "document.uploaded", "document.downloaded",
     "automation.toggled", "automation.run_checks",
+    "import.leads",
     "scoring.weights_saved",
     "notification.sent", "notification.failed",
     "notifications.settings_saved",

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from core import (
     db, get_current_user, visible_lead_ids,
     STAGES, STAGE_WIN_RATE, ROLE_ADMIN, ROLE_SALES,
+    LEAD_LIFECYCLE_PHASES, derive_lifecycle_phase,
 )
 
 router = APIRouter()
@@ -59,6 +60,26 @@ async def command_center(user: dict = Depends(get_current_user)):
     sources = [{"source": k, "value": v} for k, v in by_source.items()]
     sources.sort(key=lambda x: x["value"], reverse=True)
 
+    # <journey-analytics>
+    #   Additive (Phase 2): how leads are distributed across the high-level
+    #   lifecycle buckets, and at which stage Dropped/Lost leads fell out.
+    # </journey-analytics>
+    by_lifecycle = {p: 0 for p in LEAD_LIFECYCLE_PHASES}
+    for l in leads:
+        phase = l.get("lifecycle_phase") or derive_lifecycle_phase(int(l.get("stage") or 1), l.get("status", "Active"))
+        by_lifecycle[phase] = by_lifecycle.get(phase, 0) + 1
+    lifecycle = [{"phase": k, "count": v} for k, v in by_lifecycle.items()]
+
+    dropoff_counts = {s["id"]: 0 for s in STAGES}
+    for l in leads:
+        if l.get("lifecycle_phase") == "Dropped" or l.get("status") == "Lost":
+            ds = l.get("dropped_stage") or l.get("furthest_stage") or l.get("stage") or 1
+            dropoff_counts[ds] = dropoff_counts.get(ds, 0) + 1
+    dropoff = [
+        {"stage": s["id"], "name": s["short"], "color": s["color"], "count": dropoff_counts.get(s["id"], 0)}
+        for s in STAGES
+    ]
+
     months = []
     now = datetime.now(timezone.utc)
     for i in range(6):
@@ -83,4 +104,6 @@ async def command_center(user: dict = Depends(get_current_user)):
         "funnel": funnel,
         "by_source": sources,
         "forecast_trend": months,
+        "by_lifecycle": lifecycle,
+        "dropoff_by_stage": dropoff,
     }

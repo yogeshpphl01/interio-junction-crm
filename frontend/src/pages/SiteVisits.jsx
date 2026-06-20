@@ -1,3 +1,10 @@
+/*
+  <page name="SiteVisits" route="/site-visits">
+    <purpose>Role-scoped list of site measurements (GET /measurements). Lets the
+    user mark a visit Completed (PATCH /measurements/{id}), which is the gate that
+    unlocks the Design stage.</purpose>
+  </page>
+*/
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";

@@ -1,3 +1,12 @@
+/*
+  <module name="App" layer="frontend-routing">
+    <purpose>Top-level router. Wraps everything in AuthProvider, exposes /login,
+    and renders all authenticated pages inside the AppShell (sidebar + header)
+    behind ProtectedRoute. Admin-only pages add a role guard.</purpose>
+    <routes>/ (Command Center), /pipeline, /leads, /leads/:id, /site-visits,
+    /scoring, /automations, /analytics, /settings, /audit, /notifications.</routes>
+  </module>
+*/
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";

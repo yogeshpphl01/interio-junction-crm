@@ -1,3 +1,10 @@
+/*
+  <component name="ProtectedRoute" layer="frontend-routing">
+    <purpose>Route guard. Shows a loader while the session resolves, redirects to
+    /login when anonymous, and to "/" when the user's role is not in `roles`.</purpose>
+    <note>UI gating only — the backend independently enforces RBAC per request.</note>
+  </component>
+*/
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 

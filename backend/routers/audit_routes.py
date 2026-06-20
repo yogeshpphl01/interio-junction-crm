@@ -1,4 +1,13 @@
-"""Audit log endpoints (admin)."""
+"""
+<module name="routers/audit_routes" layer="api">
+  <purpose>Admin-only read access to the append-only audit log (written by
+  audit.log_audit across the app).</purpose>
+  <endpoints>
+    GET /api/audit          -> filtered + paginated rows (action/actor/target/q).
+    GET /api/audit/actions  -> distinct action names (for the filter dropdown).
+  </endpoints>
+</module>
+"""
 from typing import Optional, Any
 from fastapi import APIRouter, Depends
 from core import db, require_roles, ROLE_ADMIN

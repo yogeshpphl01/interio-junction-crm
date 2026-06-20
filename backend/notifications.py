@@ -1,4 +1,12 @@
-"""Email notifications via SMTP (Hostinger by default). No-op when unconfigured."""
+"""
+<module name="notifications" layer="integration">
+  <purpose>Transactional email over SMTP (Hostinger by default). Cleanly no-ops
+  when SMTP_* / SENDER_EMAIL env vars are absent, so the app runs without email.</purpose>
+  <events>Dispatched by automations: sla_breach_48h, escalate_hot_lead,
+  notify_designer_revision — each gated by the admin's per-event toggles.</events>
+  <config>SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SENDER_EMAIL, ADMIN_EMAIL.</config>
+</module>
+"""
 import os
 import ssl
 import smtplib

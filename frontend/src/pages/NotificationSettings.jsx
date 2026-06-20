@@ -1,3 +1,10 @@
+/*
+  <page name="NotificationSettings" route="/notifications" access="admin">
+    <purpose>Configure email alerts: master switch, admin recipient and per-event
+    toggles (GET/POST /notifications/settings), plus a rate-limited test send
+    (POST /notifications/test).</purpose>
+  </page>
+*/
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast, Toaster } from "sonner";

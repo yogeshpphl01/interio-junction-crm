@@ -1,4 +1,14 @@
-"""Notification settings + test endpoints."""
+"""
+<module name="routers/notifications_routes" layer="api">
+  <purpose>Admin-only email notification configuration + a rate-limited test-send.
+  SMTP transport (Hostinger) lives in notifications.py.</purpose>
+  <endpoints>
+    GET  /api/notifications/settings -> current config (+ whether SMTP is set).
+    POST /api/notifications/settings -> save master switch / recipient / per-event.
+    POST /api/notifications/test     -> send a test email (5/hour/actor limit).
+  </endpoints>
+</module>
+"""
 import os
 import time
 from collections import deque

@@ -1,4 +1,16 @@
-"""Authentication helpers: password hashing, JWT, cookie management."""
+"""
+<module name="auth_utils" layer="security">
+  <purpose>Password hashing (bcrypt), JWT access/refresh tokens, and the auth
+  cookie helpers used by the auth router and the get_current_user dependency.</purpose>
+  <tokens>
+    access  : 8h TTL, carries sub/email/role, type="access".
+    refresh : 7d TTL, carries sub, type="refresh".
+    Secret comes from the JWT_SECRET environment variable.
+  </tokens>
+  <token-extraction>extract_token() prefers the httpOnly cookie, then falls back
+  to an "Authorization: Bearer ..." header (some preview hosts drop cookies).</token-extraction>
+</module>
+"""
 import os
 import bcrypt
 import jwt

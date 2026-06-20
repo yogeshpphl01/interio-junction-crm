@@ -10,7 +10,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, FunnelChart, Funnel, LabelList,
 } from "recharts";
-import { STAGES } from "@/lib/constants";
+import { STAGES, LIFECYCLE_COLOR } from "@/lib/constants";
 
 export default function CommandCenter() {
   const { user } = useAuth();
@@ -164,6 +164,63 @@ export default function CommandCenter() {
           </div>
           <div className="mt-3 pt-3 border-t border-edge text-[11px] text-ink-muted leading-relaxed">
             Forecast = Σ (lead.budget × stage probability). Conservative — reflects how late-stage leads have higher likelihood of close.
+          </div>
+        </div>
+
+        {/* NEW: Lead journey distribution across lifecycle buckets */}
+        <div className="col-span-12 lg:col-span-6 bg-bone-paper border border-edge rounded-md p-5">
+          <h3 className="font-serif text-xl text-ink leading-none mb-3">Lead Journey Distribution</h3>
+          <div className="space-y-2">
+            {(data.by_lifecycle || []).map((p) => {
+              const max = Math.max(...(data.by_lifecycle || []).map((x) => x.count || 0)) || 1;
+              const pct = (p.count / max) * 100;
+              const color = LIFECYCLE_COLOR[p.phase] || "#8A817C";
+              return (
+                <div key={p.phase} data-testid={`lifecycle-bar-${p.phase}`}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-ink-soft flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+                      {p.phase}
+                    </span>
+                    <span className="font-mono text-ink-muted">{p.count}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-bone-subtle overflow-hidden">
+                    <div className="h-full" style={{ width: `${Math.max(pct, 4)}%`, background: color }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 pt-3 border-t border-edge text-[11px] text-ink-muted leading-relaxed">
+            Where leads sit in their journey: only enquired, mid-pipeline, completed (delivered), dropped, or on-hold.
+          </div>
+        </div>
+
+        {/* NEW: Drop-off by stage — where Lost/Dropped leads stopped proceeding */}
+        <div className="col-span-12 lg:col-span-6 bg-bone-paper border border-edge rounded-md p-5">
+          <h3 className="font-serif text-xl text-ink leading-none mb-3">Drop-off by Stage</h3>
+          <div className="space-y-2">
+            {(data.dropoff_by_stage || []).map((s) => {
+              const max = Math.max(...(data.dropoff_by_stage || []).map((x) => x.count || 0)) || 1;
+              const pct = (s.count / max) * 100;
+              return (
+                <div key={s.stage} data-testid={`dropoff-${s.stage}`}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-ink-soft flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
+                      {s.name}
+                    </span>
+                    <span className="font-mono text-ink-muted">{s.count}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-bone-subtle overflow-hidden">
+                    <div className="h-full" style={{ width: `${Math.max(pct, 4)}%`, background: s.color }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 pt-3 border-t border-edge text-[11px] text-ink-muted leading-relaxed">
+            Stage at which leads stopped proceeding. Heavy early-stage drop-off suggests qualifying or nurturing sooner.
           </div>
         </div>
       </div>

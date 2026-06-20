@@ -1,3 +1,9 @@
+/*
+  <page name="Audit" route="/audit" access="admin">
+    <purpose>Audit-log viewer (GET /audit): action filter, free-text search and
+    pagination, with colour-coded action pills and metadata.</purpose>
+  </page>
+*/
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { timeAgo, fmtDate, initials } from "@/lib/format";
