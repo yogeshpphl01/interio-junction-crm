@@ -1,4 +1,15 @@
-"""Auth: login, logout, me, refresh."""
+"""
+<module name="routers/auth" layer="api">
+  <purpose>Authentication endpoints.</purpose>
+  <endpoints>
+    POST /api/auth/login   -> verify credentials, set cookies, return user+tokens.
+    POST /api/auth/logout  -> clear auth cookies.
+    GET  /api/auth/me      -> current user (from token).
+    POST /api/auth/refresh -> rotate access+refresh from a valid refresh cookie.
+  </endpoints>
+  <auditing>Both successful and failed logins are written to the audit log.</auditing>
+</module>
+"""
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from core import db, LoginInput, get_current_user
 from auth_utils import (

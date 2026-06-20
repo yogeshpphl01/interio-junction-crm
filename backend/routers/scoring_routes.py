@@ -1,4 +1,15 @@
-"""Lead scoring routes."""
+"""
+<module name="routers/scoring_routes" layer="api">
+  <purpose>Transparent lead scoring. Ranks visible leads with a full per-signal
+  breakdown, and lets admins persist custom signal weights.</purpose>
+  <endpoints>
+    GET  /api/scoring           -> ranked leads (optional ?weights= override).
+    POST /api/scoring/weights   -> persist weights (admin) in settings.
+    GET  /api/scoring/weights   -> current weights (or defaults).
+  </endpoints>
+  <math>See scoring.compute_score — 6 weighted signals normalised to 0-100.</math>
+</module>
+"""
 import json
 from typing import Optional
 from fastapi import APIRouter, Depends

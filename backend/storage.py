@@ -1,4 +1,11 @@
-"""Emergent Object Storage integration for file uploads."""
+"""
+<module name="storage" layer="integration">
+  <purpose>Object storage for uploaded document bytes (Emergent Object Storage).
+  Document METADATA rows live in PostgreSQL (documents table); the binary file
+  contents live here. Disabled (raises on use) when EMERGENT_LLM_KEY is unset.</purpose>
+  <api>init_storage(), put_object(path, bytes, content_type), get_object(path).</api>
+</module>
+"""
 import os
 import logging
 import requests

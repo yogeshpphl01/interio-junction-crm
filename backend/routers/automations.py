@@ -1,4 +1,15 @@
-"""Automation rules, signals, run-checks."""
+"""
+<module name="routers/automations" layer="api">
+  <purpose>Workflow automation rules: list/toggle them, view the live signal feed,
+  and run idle-based checks (SLA-48h breach, escalate untouched Hot leads).</purpose>
+  <endpoints>
+    GET   /api/automations            -> rules with enabled + runs_today.
+    PATCH /api/automations/{key}      -> toggle a rule (admin).
+    POST  /api/automations/run-checks -> evaluate idle rules, fire signals+emails.
+    GET   /api/automations/signals    -> recent automation signal feed.
+  </endpoints>
+</module>
+"""
 import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends

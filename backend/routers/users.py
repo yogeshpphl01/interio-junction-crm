@@ -1,4 +1,14 @@
-"""User management (admin)."""
+"""
+<module name="routers/users" layer="api">
+  <purpose>User management. Listing is available to any authenticated user;
+  creating/updating users is admin-only.</purpose>
+  <endpoints>
+    GET   /api/users            -> all users (passwords stripped).
+    POST  /api/users            -> create user (admin). Default password from env.
+    PATCH /api/users/{user_id}  -> update name/role/phone/is_active/password (admin).
+  </endpoints>
+</module>
+"""
 import os
 import uuid
 from fastapi import APIRouter, HTTPException, Depends

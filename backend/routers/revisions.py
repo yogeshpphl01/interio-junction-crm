@@ -1,4 +1,14 @@
-"""Design revisions."""
+"""
+<module name="routers/revisions" layer="api">
+  <purpose>2D/3D design revisions per project (the gate for moving to Quotation:
+  at least one Approved revision is required by evaluate_gate).</purpose>
+  <endpoints>
+    POST  /api/revisions            -> create; revision_number auto-increments.
+    PATCH /api/revisions/{rev_id}    -> update; designers only their own.
+  </endpoints>
+  <automation>Setting status to "Revision Requested" notifies the designer.</automation>
+</module>
+"""
 import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from core import (

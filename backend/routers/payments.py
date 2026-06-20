@@ -1,4 +1,13 @@
-"""Payments (milestones)."""
+"""
+<module name="routers/payments" layer="api">
+  <purpose>Milestone payment rail per project (admin/sales). The 50%-paid rule
+  in evaluate_gate uses these rows to gate the move to Factory.</purpose>
+  <endpoints>
+    POST  /api/payments        -> create a milestone.
+    PATCH /api/payments/{pid}   -> update; marking Paid stamps paid_date.
+  </endpoints>
+</module>
+"""
 import uuid
 from fastapi import APIRouter, Depends
 from core import db, require_roles, PaymentInput, PaymentUpdate, now_iso, ROLE_ADMIN, ROLE_SALES

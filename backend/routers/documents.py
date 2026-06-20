@@ -1,4 +1,15 @@
-"""Document uploads + downloads (Emergent Object Storage)."""
+"""
+<module name="routers/documents" layer="api">
+  <purpose>Upload + download project documents. Metadata rows go to the documents
+  table; the file bytes go to object storage (storage.py). Role rules limit which
+  document types designers vs supervisors may upload; downloads are access-checked
+  against lead visibility and audit-logged.</purpose>
+  <endpoints>
+    POST /api/documents                 -> multipart upload (max 25MB).
+    GET  /api/documents/{doc_id}/download -> stream the file back.
+  </endpoints>
+</module>
+"""
 import io
 import uuid
 import logging
