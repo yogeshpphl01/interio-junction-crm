@@ -1,4 +1,19 @@
-"""Shared core: db client, constants, pydantic models, dependencies, helpers."""
+"""
+<module name="core" layer="shared-infrastructure">
+  <purpose>
+    Single shared module for: the database handle, domain constants, Pydantic
+    request schemas, auth dependencies, RBAC visibility helpers, lead-enrichment,
+    blueprint stage-gates and automation helpers. Every router imports from here.
+  </purpose>
+  <storage>
+    NOTE: This CRM was migrated from MongoDB to PostgreSQL. `db` is now a
+    PostgresDatabase (see database.py) that preserves the exact Motor-style API
+    (db.collection.find_one / find / insert_one / update_one / aggregate / ...),
+    so all routers below remain unchanged. Connection details come from env
+    (DATABASE_URL, or PG_HOST/PG_PORT/PG_DB/PG_USER/PG_PASSWORD/PG_SSLMODE).
+  </storage>
+</module>
+"""
 import os
 import uuid
 import logging
@@ -6,18 +21,22 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Literal, Any
 
 from fastapi import HTTPException, Request, Depends
-from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr
 
 from auth_utils import decode_token, extract_token
 from scoring import compute_score, DEFAULT_WEIGHTS
+from database import PostgresDatabase
 
 logger = logging.getLogger(__name__)
 
-# ---------- Mongo ----------
-mongo_url = os.environ["MONGO_URL"]
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ["DB_NAME"]]
+# ---------- Database (PostgreSQL on Hostinger) ----------
+# <db-handle>
+#   Built lazily from environment variables. The pool is opened in the FastAPI
+#   startup hook (server.py -> db.connect()) and closed on shutdown.
+#   `client` is kept as a back-compatible alias of `db`.
+# </db-handle>
+db = PostgresDatabase.from_env()
+client = db
 
 # ---------- Constants ----------
 STAGES = [

@@ -10,7 +10,7 @@ import logging
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
-from core import db, client, DEFAULT_AUTOMATIONS
+from core import db, DEFAULT_AUTOMATIONS
 from storage import init_storage
 from seed_data import seed_users, seed_leads
 from routers import ALL_ROUTERS
@@ -26,6 +26,14 @@ for r in ALL_ROUTERS:
 
 @app.on_event("startup")
 async def on_startup():
+    # <startup>
+    #   1) open the PostgreSQL connection pool, 2) ensure all tables + declared
+    #   indexes exist (idempotent CREATE ... IF NOT EXISTS), then 3) run the
+    #   original index creation + seed steps unchanged.
+    # </startup>
+    await db.connect()
+    await db.create_all()
+
     await db.users.create_index("email", unique=True)
     await db.users.create_index("id", unique=True)
     await db.leads.create_index("id", unique=True)
@@ -58,7 +66,7 @@ async def on_startup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    client.close()
+    await db.close()
 
 
 origins_env = os.environ.get("CORS_ORIGINS", "*")
