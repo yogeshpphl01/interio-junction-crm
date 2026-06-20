@@ -1,0 +1,146 @@
+{
+  "project_name": "Interio Junction CRM",
+  "theme_and_archetype": {
+    "theme": "light",
+    "archetype": "1 (Organic & Earthy)",
+    "rationale": "Warm, editorial, 'workshop-precision' feel for a modular furniture and interior manufacturing company. Fosters trust, physical tangibility, and clear scan-ability without feeling like generic tech."
+  },
+  "typography": {
+    "headings": {
+      "family": "'Fraunces', serif",
+      "weights": ["400", "500", "600"],
+      "usage": "Used for page titles, kanban column headers, primary KPI numbers, and modal titles. Characterful serif."
+    },
+    "body": {
+      "family": "'Hanken Grotesk', sans-serif",
+      "weights": ["400", "500", "600"],
+      "usage": "Clean, highly readable grotesque sans for all dense data, tables, cards, and input fields."
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl tracking-tight leading-none",
+      "h2": "text-2xl sm:text-3xl tracking-tight",
+      "h3": "text-xl sm:text-2xl",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-sm md:text-base leading-relaxed",
+      "small_labels": "text-xs tracking-[0.05em] uppercase"
+    }
+  },
+  "colors": {
+    "background": {
+      "main": "#F6F2EB",
+      "paper": "#FFFFFF",
+      "subtle": "#EBE5D9",
+      "description": "Bone/off-white paper background for the main canvas, clean white for cards/panels."
+    },
+    "text": {
+      "primary": "#2A2421",
+      "secondary": "#5C534D",
+      "muted": "#8A817C",
+      "description": "Espresso ink text. Never pure black. Muted tones for secondary labels."
+    },
+    "brand_accents": {
+      "terracotta": "#C2683D",
+      "walnut": "#8A5A3B",
+      "sand": "#D5C8B5",
+      "description": "Terracotta is the primary interactive CTA color. Walnut for secondary emphasis."
+    },
+    "pipeline_stages": {
+      "stage_1_lead_captured": "#D4A373",
+      "stage_2_initial_consultation": "#8A9A5B",
+      "stage_3_site_measurement": "#6B705C",
+      "stage_4_design_revision": "#9C6644",
+      "stage_5_final_quotation": "#A95A3F",
+      "stage_6_sent_to_factory": "#4A5D23",
+      "description": "6 distinct warm/earthy stage dots. Used for pipeline stage accents, kanban headers, and steppers."
+    },
+    "status_heat_chips": {
+      "hot": { "bg": "#C2683D20", "text": "#C2683D" },
+      "warm": { "bg": "#D4A37320", "text": "#D4A373" },
+      "cold": { "bg": "#6B705C20", "text": "#6B705C" },
+      "description": "Transparent heat chips used in lead scoring."
+    },
+    "borders": {
+      "default": "#E2DCD0",
+      "focus": "#C2683D"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous whitespace for the macro layout (page padding, section gaps) but dense, workshop-precision alignment for micro layouts (data tables, kanban cards).",
+    "global_padding": "p-6 md:p-8 lg:p-12",
+    "kanban_layout": "Flex-row, gap-4 overflow-x-auto, columns min-w-[320px] max-w-[350px].",
+    "dashboard_grid": "Bento 'Control Room' grid. Base grid-cols-1 md:grid-cols-3 lg:grid-cols-4, tight gap-4 or gap-6. Every pixel utilized in cards.",
+    "border_radius": "Subtle roundness. Use rounded-md (6px) or rounded-sm (4px). Avoid heavy pill shapes unless it is a specific chip."
+  },
+  "ui_components": {
+    "kanban_cards": {
+      "style": "bg-white border border-[#E2DCD0] rounded-md shadow-sm p-4 hover:shadow-md hover:border-[#D5C8B5] transition-all",
+      "content_layout": "Top row: Client name (Hanken Grotesk 500) + Hot/Warm badge. Middle: BHK chip + layout chip + budget. Bottom: Owner avatar + Project code.",
+      "badges": "px-2 py-1 text-xs rounded bg-[#F6F2EB] text-[#5C534D] border border-[#E2DCD0]"
+    },
+    "stepper": {
+      "style": "Horizontal timeline with connecting lines.",
+      "active_node": "Solid fill with stage accent color.",
+      "inactive_node": "bg-[#EBE5D9] text-[#8A817C]",
+      "completed_node": "bg-[#8A9A5B] text-white"
+    },
+    "kpi_cards": {
+      "style": "bg-white rounded-md p-6 border border-[#E2DCD0] flex flex-col gap-2",
+      "typography": "Primary metric in Fraunces text-4xl. Label in Hanken Grotesk uppercase text-xs tracking-wider text-[#8A817C]."
+    },
+    "buttons": {
+      "primary": "bg-[#C2683D] text-white hover:bg-[#A95A3F] rounded-md px-4 py-2 font-medium transition-colors",
+      "secondary": "bg-transparent border border-[#8A5A3B] text-[#8A5A3B] hover:bg-[#F6F2EB] rounded-md px-4 py-2 font-medium",
+      "ghost": "text-[#5C534D] hover:bg-[#EBE5D9] rounded-md px-4 py-2"
+    },
+    "inputs_and_forms": {
+      "style": "bg-[#FFFFFF] border border-[#E2DCD0] rounded-md px-3 py-2 text-[#2A2421] focus:ring-2 focus:ring-[#C2683D]/20 focus:border-[#C2683D] outline-none"
+    },
+    "testing": "All interactive and key informational elements MUST include `data-testid` attribute (kebab-case, role-based)."
+  },
+  "specific_screens": {
+    "login": {
+      "layout": "Split screen. Left: Form panel with bone background, soft shadows. Right: Immersive image of modern interior or precision carpentry.",
+      "typography": "Welcome heading in Fraunces text-4xl."
+    },
+    "lead_detail": {
+      "layout": "Header with title and status chips. Underneath: 6-stage stepper. Below stepper: Two column layout (grid-cols-12 gap-8). Left col (span 8): Requirement brief, Site Measurements, Revisions. Right col (span 4): Activity Timeline, Payments rail."
+    },
+    "lead_scoring": {
+      "layout": "Transparent Lead Scoring screen. Use HTML range inputs styled with accent colors for weight sliders. 'Why?' expander uses a soft bg accordion.",
+      "chips": "Hot (Terracotta text, light terracotta bg), Warm (Ochre text/bg), Cold (Slate text/bg)."
+    },
+    "automations": {
+      "layout": "List of blueprint gates and workflow rule toggles. Live signals feed on the right sidebar (dense list, monospaced timestamps)."
+    },
+    "command_center": {
+      "layout": "Top: 4 KPI Cards (pipeline value, probability-weighted forecast, win rate, cycle time). Below: Charts. Revenue forecast area chart, pipeline funnel, value by source.",
+      "charts": "Recharts. Use desaturated earthy tones for areas. Terracotta for primary lines. Walnut for secondary."
+    }
+  },
+  "media_and_images": {
+    "login_background": {
+      "url": "https://images.pexels.com/photos/30857234/pexels-photo-30857234.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Contemporary kitchen with wood cabinets. Use on the right side of the login screen."
+    },
+    "empty_state_1": {
+      "url": "https://images.unsplash.com/photo-1755771984341-546c2a04f236?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwyfHxtb2Rlcm4lMjBtb2R1bGFyJTIwa2l0Y2hlbiUyMGludGVyaW9yJTIwd2FybSUyMHdvb2R8ZW58MHx8fHwxNzgxOTMwNjQ5fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Modern modular kitchen. Use for 'No site measurements yet' or similar empty states with a semi-transparent overlay."
+    },
+    "empty_state_2": {
+      "url": "https://images.unsplash.com/photo-1659930087003-2d64e33181f7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwxfHxmdXJuaXR1cmUlMjB3b3Jrc2hvcCUyMGNhcnBlbnRyeSUyMHByZWNpc2V8ZW58MHx8fHwxNzgxOTMwNjQ5fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Precision carpentry. Use for empty pipeline or factory production states."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Install 'lucide-react' for icons. Prefer crisp, simple icons.",
+    "Add 'recharts' for the Command Center dashboard visualizations.",
+    "Add tailwind configuration for 'Fraunces' and 'Hanken Grotesk' fonts from Google Fonts.",
+    "Ensure `data-testid` is added to all buttons, inputs, links, and cards for E2E testing.",
+    "Do NOT use pure black or default blue. Stick strictly to the earthy color palette provided.",
+    "Implement the 6 pipeline stages with their exact color tokens for the stage dots and stepper nodes.",
+    "Format currency strictly in Indian format (e.g., ₹ 1.5 Lakh, ₹ 2.5 Crore).",
+    "Kanban board must have drag-and-drop capability. Design cards to be compact and scannable.",
+    "Lead detail page should have a clear visual hierarchy with the progress stepper acting as the anchor.",
+    "Use .js/.jsx extensions for all files, not .tsx. Set up the project accordingly."
+  ]
+}
