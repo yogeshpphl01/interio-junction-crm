@@ -1,14 +1,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api, API_BASE } from "@/lib/api";
-import { Stepper, StageBadge, HeatChip, StageDot } from "@/components/StageVisuals";
+import { Stepper, StageBadge, HeatChip, StageDot, LifecycleBadge } from "@/components/StageVisuals";
 import { formatINR, formatINRFull, fmtDate, initials, timeAgo } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast, Toaster } from "sonner";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Upload, Download,
   Plus, Pencil, Phone, Mail, MapPin, Calendar, Ruler, Layers, IndianRupee,
-  Trophy, XCircle, PauseCircle, RotateCcw,
+  Trophy, XCircle, PauseCircle, RotateCcw, Footprints,
 } from "lucide-react";
 import CloseLeadModal from "@/components/CloseLeadModal";
 
@@ -98,7 +98,24 @@ export default function LeadDetail() {
           <ClosedBanner lead={data} />
         )}
 
-        <div className="mt-8 pt-2">
+        {/* NEW: journey lifecycle summary above the stage stepper */}
+        <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <LifecycleBadge phase={data.lifecycle_phase} />
+          <span className="text-xs text-ink-muted">
+            Furthest stage reached:{" "}
+            <span className="text-ink-soft font-medium">{data.furthest_stage || data.stage}</span> / 6
+          </span>
+          {data.dropped_stage && (
+            <span className="text-xs text-[#A95A3F]">
+              Dropped at stage {data.dropped_stage}
+              {data.dropped_reason ? ` — ${data.dropped_reason}` : ""}
+            </span>
+          )}
+          {data.delivered_at && (
+            <span className="text-xs text-[#4A5D23]">Delivered {fmtDate(data.delivered_at)}</span>
+          )}
+        </div>
+        <div className="mt-4 pt-2">
           <Stepper current={data.stage} />
         </div>
       </div>
@@ -203,6 +220,11 @@ export default function LeadDetail() {
                 <PaymentSummary payments={data.payments} />
               </div>
             )}
+          </Card>
+
+          {/* NEW: Lead journey — per-stage entry/exit timeline */}
+          <Card title="Lead Journey" icon={Footprints}>
+            <JourneyTimeline journey={data.journey} />
           </Card>
 
           {/* Activity timeline */}
@@ -560,6 +582,32 @@ function Kv({ label, v }) {
       <div className="text-[9px] uppercase tracking-wide text-ink-muted">{label}</div>
       <div className="text-xs text-ink font-medium mt-0.5">{v}</div>
     </div>
+  );
+}
+
+/*
+  <component name="JourneyTimeline">
+    Renders the per-stage journey (entered_at/exited_at per stage) captured in
+    the lead's `journey` JSONB. The last open stage is the lead's current step.
+  </component>
+*/
+function JourneyTimeline({ journey }) {
+  if (!journey || journey.length === 0) return <Empty text="No journey recorded yet." />;
+  return (
+    <ol className="space-y-3" data-testid="journey-timeline">
+      {journey.map((j, i) => (
+        <li key={i} className="flex items-start gap-3">
+          <StageDot stage={j.stage} size={10} />
+          <div className="min-w-0">
+            <div className="text-sm text-ink">{j.stage_name || `Stage ${j.stage}`}</div>
+            <div className="text-[11px] text-ink-muted">
+              Entered {fmtDate(j.entered_at, true)}
+              {j.exited_at ? ` · Exited ${fmtDate(j.exited_at, true)}` : " · current step"}
+            </div>
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }
 

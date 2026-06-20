@@ -1,4 +1,26 @@
-import { STAGES } from "@/lib/constants";
+import { STAGES, LIFECYCLE_COLOR } from "@/lib/constants";
+
+/*
+  <component name="LifecycleBadge">
+    Small colour-coded pill showing a lead's journey bucket (Enquiry /
+    In-Progress / Completed / Dropped / On-hold). Falls back gracefully when a
+    lead has no lifecycle_phase yet.
+  </component>
+*/
+export function LifecycleBadge({ phase }) {
+  if (!phase) return <span className="text-ink-muted text-xs">—</span>;
+  const color = LIFECYCLE_COLOR[phase] || "#8A817C";
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium"
+      style={{ backgroundColor: `${color}22`, color, border: `1px solid ${color}33` }}
+      data-testid={`lifecycle-${phase.toLowerCase()}`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+      {phase}
+    </span>
+  );
+}
 
 export function StageDot({ stage, size = 8 }) {
   const s = STAGES.find((x) => x.id === stage);

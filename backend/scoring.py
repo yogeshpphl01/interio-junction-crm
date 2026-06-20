@@ -24,6 +24,7 @@ SOURCE_RATIO = {
     "Referral": 0.9,
     "Website": 0.7,
     "Instagram": 0.6,
+    "Facebook": 0.6,   # Meta Lead-Ads (same tier as Instagram)
     "Google": 0.55,
     "Walk-in": 0.5,
     "Other": 0.4,

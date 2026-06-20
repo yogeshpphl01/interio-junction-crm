@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { formatINR, timeAgo, initials } from "@/lib/format";
-import { StageBadge, HeatChip } from "@/components/StageVisuals";
-import { Search } from "lucide-react";
+import { StageBadge, HeatChip, LifecycleBadge } from "@/components/StageVisuals";
+import { LIFECYCLE } from "@/lib/constants";
+import ImportLeadsModal from "@/components/ImportLeadsModal";
+import { Toaster } from "sonner";
+import { Search, UploadCloud } from "lucide-react";
 
 export default function Leads() {
+  const { user } = useAuth();
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("");
   const [status, setStatus] = useState("");
+  const [lifecycle, setLifecycle] = useState("");   // NEW: client-side journey filter
+  const [showImport, setShowImport] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);     // bump to re-fetch after import
+
+  const canImport = user && (user.role === "admin" || user.role === "sales");
 
   useEffect(() => {
     setLoading(true);
@@ -21,12 +31,18 @@ export default function Leads() {
       .get("/leads", { params })
       .then((r) => setLeads(r.data))
       .finally(() => setLoading(false));
-  }, [stage, status]);
+  }, [stage, status, reloadKey]);
 
-  const filtered = leads.filter((l) => !q || (l.full_name + " " + (l.city || "") + " " + (l.project?.project_code || "")).toLowerCase().includes(q.toLowerCase()));
+  // Search + lifecycle filtering happen client-side on the fetched rows.
+  const filtered = leads.filter(
+    (l) =>
+      (!q || (l.full_name + " " + (l.city || "") + " " + (l.project?.project_code || "")).toLowerCase().includes(q.toLowerCase())) &&
+      (!lifecycle || l.lifecycle_phase === lifecycle)
+  );
 
   return (
     <div className="px-4 sm:px-6 lg:px-10 py-6">
+      <Toaster richColors position="top-right" />
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h2 className="font-serif text-3xl text-ink leading-none">Leads</h2>
@@ -45,6 +61,21 @@ export default function Leads() {
             <option value="">All statuses</option>
             {["Active", "Won", "Lost", "On-hold"].map((s) => <option key={s}>{s}</option>)}
           </select>
+          {/* NEW: filter by journey lifecycle bucket */}
+          <select value={lifecycle} onChange={(e) => setLifecycle(e.target.value)} className="bg-bone-paper border border-edge rounded-md px-2.5 py-2 text-sm" data-testid="filter-lifecycle">
+            <option value="">All journeys</option>
+            {LIFECYCLE.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+          {/* NEW: import leads from a Meta Lead-Ads spreadsheet (admin/sales only) */}
+          {canImport && (
+            <button
+              onClick={() => setShowImport(true)}
+              data-testid="open-import-modal"
+              className="inline-flex items-center gap-1.5 bg-clay hover:bg-clay-deep text-white rounded-md px-3 py-2 text-sm font-medium"
+            >
+              <UploadCloud className="w-4 h-4" /> Import
+            </button>
+          )}
         </div>
       </div>
 
@@ -55,6 +86,7 @@ export default function Leads() {
               <tr className="text-left">
                 <th className="px-4 py-2.5 font-medium text-[11px] uppercase tracking-wider">Client</th>
                 <th className="px-4 py-2.5 font-medium text-[11px] uppercase tracking-wider">Stage</th>
+                <th className="px-4 py-2.5 font-medium text-[11px] uppercase tracking-wider">Journey</th>
                 <th className="px-4 py-2.5 font-medium text-[11px] uppercase tracking-wider">Type</th>
                 <th className="px-4 py-2.5 font-medium text-[11px] uppercase tracking-wider">Budget</th>
                 <th className="px-4 py-2.5 font-medium text-[11px] uppercase tracking-wider">Score</th>
@@ -64,10 +96,10 @@ export default function Leads() {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={7} className="text-center py-10 text-ink-muted">Loading…</td></tr>
+                <tr><td colSpan={8} className="text-center py-10 text-ink-muted">Loading…</td></tr>
               )}
               {!loading && filtered.length === 0 && (
-                <tr><td colSpan={7} className="text-center py-10 text-ink-muted italic">No leads</td></tr>
+                <tr><td colSpan={8} className="text-center py-10 text-ink-muted italic">No leads</td></tr>
               )}
               {filtered.map((l) => (
                 <tr key={l.id} className="border-t border-edge hover:bg-bone transition" data-testid={`lead-row-${l.id}`}>
@@ -76,6 +108,7 @@ export default function Leads() {
                     <div className="text-[11px] text-ink-muted">{l.city || "—"} {l.project?.project_code && `· ${l.project.project_code}`}</div>
                   </td>
                   <td className="px-4 py-3"><StageBadge stage={l.stage} /></td>
+                  <td className="px-4 py-3"><LifecycleBadge phase={l.lifecycle_phase} /></td>
                   <td className="px-4 py-3 text-ink-soft">{l.lead_type}</td>
                   <td className="px-4 py-3 font-mono text-ink">{formatINR(l.tentative_budget)}</td>
                   <td className="px-4 py-3"><HeatChip heat={l.heat} score={l.score} /></td>
@@ -92,6 +125,14 @@ export default function Leads() {
           </table>
         </div>
       </div>
+
+      {/* NEW: Excel / Meta Lead-Ads import modal (refreshes the table on success) */}
+      {showImport && (
+        <ImportLeadsModal
+          onClose={() => setShowImport(false)}
+          onImported={() => setReloadKey((k) => k + 1)}
+        />
+      )}
     </div>
   );
 }
