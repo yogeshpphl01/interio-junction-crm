@@ -233,6 +233,69 @@ export default function LeadDetail() {
           }}
         />
       )}
+      {closing && (
+        <CloseLeadModal
+          lead={data}
+          onClose={() => setClosing(false)}
+          onClosed={() => {
+            setClosing(false);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CloseStatusButton({ lead, onOpen }) {
+  const isActive = lead.status === "Active";
+  return (
+    <button
+      onClick={onOpen}
+      data-testid="close-lead-btn"
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition ${
+        isActive
+          ? "border-edge text-ink hover:bg-bone-subtle"
+          : "border-clay/40 text-clay hover:bg-clay/5"
+      }`}
+    >
+      {isActive ? (
+        <>
+          <Trophy className="w-3.5 h-3.5" /> Close lead…
+        </>
+      ) : (
+        <>
+          <RotateCcw className="w-3.5 h-3.5" /> Reopen lead
+        </>
+      )}
+    </button>
+  );
+}
+
+function ClosedBanner({ lead }) {
+  const map = {
+    Won: { icon: Trophy, color: "#4A5D23", bg: "#4A5D2310", label: "Won" },
+    Lost: { icon: XCircle, color: "#A95A3F", bg: "#A95A3F10", label: "Lost" },
+    "On-hold": { icon: PauseCircle, color: "#8A817C", bg: "#8A817C10", label: "On hold" },
+  };
+  const s = map[lead.status];
+  if (!s) return null;
+  const Icon = s.icon;
+  const reason = lead.lost_reason || lead.won_reason || lead.hold_reason;
+  return (
+    <div
+      className="mt-4 rounded-md border px-4 py-3 flex items-start gap-3"
+      style={{ borderColor: `${s.color}33`, background: s.bg }}
+      data-testid="closed-banner"
+    >
+      <Icon className="w-4 h-4 mt-0.5 shrink-0" style={{ color: s.color }} />
+      <div className="min-w-0">
+        <div className="text-sm font-semibold" style={{ color: s.color }}>
+          Lead marked {s.label}
+          {lead.won_value ? ` · ${formatINR(lead.won_value)} contract` : ""}
+        </div>
+        {reason && <div className="text-xs text-ink-soft mt-0.5 italic">{reason}</div>}
+      </div>
     </div>
   );
 }

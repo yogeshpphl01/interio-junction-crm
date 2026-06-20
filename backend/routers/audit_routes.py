@@ -17,6 +17,8 @@ async def list_audit(
     limit: int = 100,
     offset: int = 0,
 ):
+    limit = max(1, min(int(limit or 100), 500))
+    offset = max(0, int(offset or 0))
     filt: dict[str, Any] = {}
     if action:
         filt["action"] = action

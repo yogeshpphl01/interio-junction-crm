@@ -26,6 +26,7 @@ ACTIONS = {
     "automation.toggled", "automation.run_checks",
     "scoring.weights_saved",
     "notification.sent", "notification.failed",
+    "notifications.settings_saved",
 }
 
 

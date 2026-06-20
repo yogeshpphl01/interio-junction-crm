@@ -46,7 +46,7 @@ async def get_notification_settings(user: dict = Depends(require_roles(ROLE_ADMI
 async def save_notification_settings(payload: NotificationSettingsInput, user: dict = Depends(require_roles(ROLE_ADMIN))):
     value = payload.model_dump()
     await db.settings.update_one({"key": "notifications"}, {"$set": {"value": value}}, upsert=True)
-    await log_audit(db, user, "scoring.weights_saved", "settings", "notifications", "Notification settings", value)
+    await log_audit(db, user, "notifications.settings_saved", "settings", "notifications", "Notification settings", value)
     return await _get_settings(user)
 
 
