@@ -1,3 +1,9 @@
+/*
+  <module name="index" layer="frontend-entry">
+    <purpose>React entry point. Mounts <App/> under a TanStack Query provider
+    (60s staleTime, no refetch-on-focus) and React StrictMode.</purpose>
+  </module>
+*/
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

@@ -1,3 +1,9 @@
+/*
+  <page name="Login" route="/login">
+    <purpose>Email/password sign-in. Delegates to useAuth().login and redirects
+    to "/" on success. Prefilled with the demo admin for convenience.</purpose>
+  </page>
+*/
 import { useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";

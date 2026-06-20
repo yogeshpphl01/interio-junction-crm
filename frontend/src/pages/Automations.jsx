@@ -1,3 +1,10 @@
+/*
+  <page name="Automations" route="/automations" access="admin,sales">
+    <purpose>View workflow rules with their runs-today count, toggle them
+    (admin, PATCH /automations/{key}), trigger idle checks (POST
+    /automations/run-checks) and watch the live signal feed.</purpose>
+  </page>
+*/
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { timeAgo } from "@/lib/format";

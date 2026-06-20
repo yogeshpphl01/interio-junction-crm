@@ -1,3 +1,12 @@
+/*
+  <module name="AuthContext" layer="frontend-state">
+    <purpose>App-wide auth state + actions (login / logout / refresh) exposed via
+    the useAuth() hook. On mount it calls GET /auth/me to resolve the session.</purpose>
+    <user-states>null = still checking · false = anonymous · object = logged in.</user-states>
+    <token>On login the access token is mirrored to localStorage (ij_api token)
+    as a bearer fallback for hosts that drop cookies (see lib/api.js).</token>
+  </module>
+*/
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 

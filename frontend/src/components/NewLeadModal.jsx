@@ -1,3 +1,9 @@
+/*
+  <component name="NewLeadModal" layer="frontend">
+    <purpose>Manual single-lead creation form. Loads dropdown options from /meta
+    and POSTs to /api/leads. (Bulk import is handled by ImportLeadsModal.)</purpose>
+  </component>
+*/
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";

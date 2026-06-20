@@ -1,3 +1,10 @@
+/*
+  <page name="LeadScoring" route="/scoring" access="admin,sales">
+    <purpose>Transparent scoring workbench: ranked leads with a per-signal "Why?"
+    breakdown (GET /scoring), live weight sliders, and admin save of the default
+    weights (POST /scoring/weights).</purpose>
+  </page>
+*/
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";

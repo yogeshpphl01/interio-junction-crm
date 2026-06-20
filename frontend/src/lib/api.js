@@ -1,3 +1,12 @@
+/*
+  <module name="lib/api" layer="frontend-data">
+    <purpose>Shared axios client. Base URL = REACT_APP_BACKEND_URL + "/api",
+    sends cookies (withCredentials) and also attaches a bearer token from
+    localStorage as a fallback for hosts that drop cookies.</purpose>
+    <helper>formatApiErrorDetail(): turn FastAPI error detail (string | array |
+    object) into a single human-readable message for toasts.</helper>
+  </module>
+*/
 import axios from "axios";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;

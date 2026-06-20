@@ -1,3 +1,10 @@
+/*
+  <component name="AppShell" layer="frontend-layout">
+    <purpose>Authenticated chrome: left sidebar nav (role-filtered via the NAV
+    list), top header with page title + role badge, and an <Outlet/> for the
+    active page. Collapsible on mobile.</purpose>
+  </component>
+*/
 import { useState } from "react";
 import { useNavigate, Link, useLocation, Outlet } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
