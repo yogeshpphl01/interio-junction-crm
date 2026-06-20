@@ -1,0 +1,41 @@
+{
+  "summary": "First full test pass on Interio Junction CRM. 28/31 backend pytest tests pass (3 skipped due to state dependencies — no available stage-3 lead without completed measurement and no project-lead-not-assigned-to-sales after earlier tests). Fixed 5 backend serialization bugs (MongoDB ObjectId leak in POST responses) which were causing 500s on /api/users, /api/documents, /api/revisions, /api/payments, /api/measurements, /api/activities and POST /api/leads. Frontend Command Center, Lead Scoring, Automations and Pipeline pages render correctly with full design system (Fraunces/Hanken, bone/espresso/terracotta palette, ₹X L / ₹X Cr formatting, heat chips, stage dots, KPIs, weight sliders, gates, live signals).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/users, /api/documents, /api/revisions, /api/payments, /api/measurements, /api/activities, /api/leads", "issue": "Returned 500 due to MongoDB _id ObjectId leaking into JSON response after insert_one. FIXED in /app/backend/server.py by popping _id before return."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Command Center / Lead Scoring", "issues": ["Recharts emits repeated 'width(-1) height(-1)' warnings during first paint — non-blocking, container resolves; consider setting minHeight on ResponsiveContainer wrapper to silence."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_crm_backend.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Validate main agent: backend POST endpoints have been patched to strip Mongo _id (server.py edits, 7 spots). Hot reload picked up. Please review patches.",
+    "Consider adding a POST /api/auth/logout call (not just clearing localStorage) on UI logout to invalidate httpOnly cookies — current logout testid was not located so couldn't fully verify role-based UI restrictions in browser (admin verified visually).",
+    "Optional: set minHeight on Recharts ResponsiveContainer wrappers to remove width=-1 warnings on first render."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1220 lines — should be split into routers (auth, leads, pipeline, documents, scoring, automations, analytics).",
+    "MongoDB _id pollution pattern: every POST endpoint manually pops _id. Better fix is a small helper `clean(doc)` or use insert_one then re-fetch via find_one with projection {'_id':0}.",
+    "Designer/supervisor role authorization in /api/revisions and /api/measurements relies on user-provided project_id but never asserts the project is visible to that user — a designer can POST a revision for any project_id. Recommend ensuring proj visibility.",
+    "evaluate_gate Stage 5->6 uses sum of payment statuses but counts total = sum of ALL statuses including 'Pending' — math is correct, but worth a test for edge case 0 payments.",
+    "JWT_SECRET committed in backend/.env — for production should come from secret manager.",
+    "CORS_ORIGINS='*' with credentials in code falls back to allow_creds=False — browsers using withCredentials will fail in prod; needs explicit origin list."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (popped _id in 7 POST handlers: users, leads, measurements, revisions, payments, documents, activities)",
+    "/app/backend/tests/test_crm_backend.py (new)"
+  ],
+  "success_rate": {"backend": "100% (28/28 executed, 3 skipped)", "frontend": "Admin UI verified visually for nav, Pipeline, Lead Scoring, Automations, Command Center"},
+  "test_credentials": "admin@interiojunction.com / interio2026 (+sales/designer/supervisor same password) — verified login works for all 4 via API; admin verified via UI.",
+  "seed_data_creation": "Created TEST_ prefixed user via POST /api/users; uploaded one test.txt document via POST /api/documents; multiple stage transitions executed on seeded leads — state of seeded data slightly mutated (some leads moved to higher stages).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend MongoDB _id leaks have been fixed at insert sites. Seed data state may have been mutated by stage-move tests (some leads now at later stages); re-run seeding if needed. Sales-unauthorized document download test skipped on this run because seeded data left no project-lead unowned by sales — consider creating a fresh isolated test lead. Cookie-only logout API not invoked by test script — couldn't traverse multi-role nav UI in one Playwright session; backend RBAC tests cover the role boundaries.",
+  "rca of the issue": "Root cause for the 500s: motor's insert_one mutates the passed dict by injecting a BSON ObjectId into the '_id' key. Endpoints returned that mutated dict directly; FastAPI's jsonable_encoder cannot serialize ObjectId and raised ValueError(['ObjectId is not iterable', 'vars() argument must have __dict__ attribute']). Reproduction: POST /api/users {email,role,full_name} -> 500. Mitigation applied: doc.pop('_id', None) before returning in all create handlers. Long-term: use a serialization helper or projection re-fetch."
+}
