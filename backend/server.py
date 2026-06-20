@@ -28,6 +28,7 @@ from auth_utils import (
 from storage import init_storage, put_object, get_object, APP_NAME
 from scoring import compute_score, DEFAULT_WEIGHTS
 from seed_data import seed_users, seed_leads
+from audit import log_audit
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -326,24 +327,28 @@ async def meta():
 
 # ---------- Auth Routes ----------
 @api.post("/auth/login")
-async def login(input: LoginInput, response: Response):
+async def login(input: LoginInput, response: Response, request: Request):
     email = input.email.lower().strip()
     user = await db.users.find_one({"email": email})
     if not user or not user.get("is_active", True):
+        await log_audit(db, None, "auth.login_failed", "user", None, email, {"reason": "not_found_or_inactive"}, request)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not verify_password(input.password, user["password_hash"]):
+        await log_audit(db, None, "auth.login_failed", "user", user["id"], email, {"reason": "bad_password"}, request)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     access = create_access_token(user["id"], user["email"], user["role"])
     refresh = create_refresh_token(user["id"])
     set_auth_cookies(response, access, refresh)
     user.pop("_id", None)
     user.pop("password_hash", None)
+    await log_audit(db, user, "auth.login", "user", user["id"], user["full_name"], None, request)
     return {"user": user, "access_token": access, "refresh_token": refresh}
 
 
 @api.post("/auth/logout")
-async def logout(response: Response, user: dict = Depends(get_current_user)):
+async def logout(response: Response, request: Request, user: dict = Depends(get_current_user)):
     clear_auth_cookies(response)
+    await log_audit(db, user, "auth.logout", "user", user["id"], user["full_name"], None, request)
     return {"ok": True}
 
 
@@ -395,6 +400,7 @@ async def create_user(payload: UserCreate, admin: dict = Depends(require_roles(R
     await db.users.insert_one(doc)
     doc.pop("password_hash", None)
     doc.pop("_id", None)
+    await log_audit(db, admin, "user.created", "user", doc["id"], doc["full_name"], {"role": doc["role"], "email": doc["email"]})
     return doc
 
 
@@ -407,7 +413,9 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_ro
     if not update:
         return await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
     await db.users.update_one({"id": user_id}, {"$set": update})
-    return await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    await log_audit(db, admin, "user.updated", "user", user_id, target.get("full_name") if target else user_id, {"fields": list(update.keys())})
+    return target
 
 
 # ---------- Leads (Kanban cards) ----------
@@ -496,6 +504,7 @@ async def create_lead(payload: LeadCreate, user: dict = Depends(get_current_user
         "actor_id": user["id"],
         "created_at": _now(),
     })
+    await log_audit(db, user, "lead.created", "lead", doc["id"], doc["full_name"], {"source": payload.source, "budget": payload.tentative_budget})
     return (await enrich_leads([doc]))[0]
 
 
@@ -556,6 +565,81 @@ async def update_lead(lead_id: str, payload: LeadUpdate, user: dict = Depends(ge
     update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     update["updated_at"] = _now()
     await db.leads.update_one({"id": lead_id}, {"$set": update})
+    new_lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    await log_audit(db, user, "lead.updated", "lead", lead_id, new_lead.get("full_name"), {"fields": list(update.keys())})
+    return (await enrich_leads([new_lead]))[0]
+
+
+class CloseLeadInput(BaseModel):
+    status: Literal["Won", "Lost", "On-hold", "Active"]
+    reason: Optional[str] = ""
+    won_value: Optional[float] = None
+
+
+@api.post("/leads/{lead_id}/close")
+async def close_lead(lead_id: str, payload: CloseLeadInput, request: Request, user: dict = Depends(get_current_user)):
+    """Mark a lead as Won / Lost / On-hold (or reopen to Active) with a reason."""
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    await ensure_lead_visible(user, lead)
+    if user["role"] not in (ROLE_ADMIN, ROLE_SALES):
+        raise HTTPException(status_code=403, detail="Only admin/sales can close leads")
+    if payload.status == "Lost" and not (payload.reason and payload.reason.strip()):
+        raise HTTPException(status_code=400, detail="Lost reason is required")
+
+    update: dict[str, Any] = {"status": payload.status, "updated_at": _now()}
+    if payload.status == "Lost":
+        update["lost_reason"] = payload.reason.strip()
+        update["closed_at"] = _now()
+    elif payload.status == "Won":
+        update["won_reason"] = (payload.reason or "").strip() or None
+        update["closed_at"] = _now()
+        if payload.won_value is not None:
+            update["won_value"] = float(payload.won_value)
+            # also reflect on project contract_value
+            if lead.get("project_id"):
+                await db.projects.update_one(
+                    {"id": lead["project_id"]},
+                    {"$set": {"contract_value": float(payload.won_value), "signed_off": True}},
+                )
+    elif payload.status == "On-hold":
+        update["hold_reason"] = (payload.reason or "").strip() or None
+    elif payload.status == "Active":
+        # reopen — clear close fields
+        update["lost_reason"] = None
+        update["won_reason"] = None
+        update["hold_reason"] = None
+        update["closed_at"] = None
+
+    await db.leads.update_one({"id": lead_id}, {"$set": update})
+
+    summary_map = {
+        "Won": f"Marked Won. {payload.reason or ''}".strip(),
+        "Lost": f"Marked Lost — {payload.reason}",
+        "On-hold": f"Put on hold. {payload.reason or ''}".strip(),
+        "Active": "Reopened.",
+    }
+    await db.activities.insert_one({
+        "id": str(uuid.uuid4()),
+        "lead_id": lead_id,
+        "type": "Note",
+        "summary": summary_map[payload.status],
+        "actor_id": user["id"],
+        "created_at": _now(),
+    })
+
+    audit_action = {
+        "Won": "lead.closed_won",
+        "Lost": "lead.closed_lost",
+        "On-hold": "lead.on_hold",
+        "Active": "lead.reopened",
+    }[payload.status]
+    await log_audit(
+        db, user, audit_action, "lead", lead_id, lead.get("full_name"),
+        {"reason": payload.reason, "won_value": payload.won_value}, request,
+    )
+
     new_lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     return (await enrich_leads([new_lead]))[0]
 
@@ -638,6 +722,7 @@ async def move_lead(lead_id: str, payload: StageMoveInput, user: dict = Depends(
         }
         await db.projects.insert_one(proj_doc)
         update["project_id"] = proj_doc["id"]
+        await log_audit(db, user, "project.created", "project", proj_doc["id"], proj_doc["project_code"], {"lead_id": lead_id})
         # workflow rule: auto-assign supervisor if entering stage 3
         await run_workflow_auto_assign_supervisor(lead_id, proj_doc["id"])
 
@@ -665,6 +750,10 @@ async def move_lead(lead_id: str, payload: StageMoveInput, user: dict = Depends(
         "actor_id": user["id"],
         "created_at": _now(),
     })
+    await log_audit(
+        db, user, "lead.stage_changed", "lead", lead_id, lead.get("full_name"),
+        {"from": from_stage, "to": to, "override": bool(payload.override and not allowed)},
+    )
     new_lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     return (await enrich_leads([new_lead]))[0]
 
@@ -713,7 +802,12 @@ async def update_measurement(ms_id: str, payload: MeasurementUpdate, user: dict 
         raise HTTPException(status_code=403, detail="Forbidden")
     update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     await db.site_measurements.update_one({"id": ms_id}, {"$set": update})
-    return await db.site_measurements.find_one({"id": ms_id}, {"_id": 0})
+    new_ms = await db.site_measurements.find_one({"id": ms_id}, {"_id": 0})
+    if payload.status == "Completed":
+        await log_audit(db, user, "measurement.completed", "measurement", ms_id, None, {"area": new_ms.get("total_area_sqft")})
+    else:
+        await log_audit(db, user, "measurement.updated", "measurement", ms_id, None, {"fields": list(update.keys())})
+    return new_ms
 
 
 @api.get("/measurements")
@@ -781,6 +875,7 @@ async def create_revision(payload: RevisionInput, user: dict = Depends(get_curre
             "created_at": _now(),
         })
     doc.pop("_id", None)
+    await log_audit(db, user, "revision.created", "revision", doc["id"], f"R{next_num} · {payload.title}", {"project_id": payload.project_id})
     return doc
 
 
@@ -796,6 +891,10 @@ async def update_revision(rev_id: str, payload: RevisionUpdate, user: dict = Dep
     update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     await db.design_revisions.update_one({"id": rev_id}, {"$set": update})
     new_rev = await db.design_revisions.find_one({"id": rev_id}, {"_id": 0})
+    if payload.status:
+        await log_audit(db, user, "revision.status_changed", "revision", rev_id, f"R{new_rev.get('revision_number')}", {"status": payload.status})
+    else:
+        await log_audit(db, user, "revision.updated", "revision", rev_id, f"R{new_rev.get('revision_number')}", {"fields": list(update.keys())})
     # Workflow: notify designer when status set to Revision Requested
     if payload.status == "Revision Requested":
         await run_workflow_notify_designer(rev_id, new_rev)
@@ -813,6 +912,7 @@ async def create_payment(payload: PaymentInput, user: dict = Depends(require_rol
     }
     await db.payments.insert_one(doc)
     doc.pop("_id", None)
+    await log_audit(db, user, "payment.created", "payment", doc["id"], payload.milestone, {"amount": payload.amount, "project_id": payload.project_id})
     return doc
 
 
@@ -822,7 +922,12 @@ async def update_payment(pid: str, payload: PaymentUpdate, user: dict = Depends(
     if update.get("status") == "Paid" and not update.get("paid_date"):
         update["paid_date"] = _now()
     await db.payments.update_one({"id": pid}, {"$set": update})
-    return await db.payments.find_one({"id": pid}, {"_id": 0})
+    new_p = await db.payments.find_one({"id": pid}, {"_id": 0})
+    if update.get("status") == "Paid":
+        await log_audit(db, user, "payment.paid", "payment", pid, new_p.get("milestone"), {"amount": new_p.get("amount")})
+    else:
+        await log_audit(db, user, "payment.updated", "payment", pid, new_p.get("milestone"), {"fields": list(update.keys())})
+    return new_p
 
 
 # ---------- Activities ----------
@@ -895,11 +1000,15 @@ async def upload_document(
     }
     await db.documents.insert_one(doc)
     doc.pop("_id", None)
+    await log_audit(
+        db, user, "document.uploaded", "document", doc["id"], file.filename,
+        {"project_id": project_id, "type": type, "size": doc["size"], "content_type": file.content_type},
+    )
     return doc
 
 
 @api.get("/documents/{doc_id}/download")
-async def download_document(doc_id: str, user: dict = Depends(get_current_user)):
+async def download_document(doc_id: str, request: Request, user: dict = Depends(get_current_user)):
     rec = await db.documents.find_one({"id": doc_id, "is_deleted": {"$ne": True}}, {"_id": 0})
     if not rec:
         raise HTTPException(status_code=404, detail="Not found")
@@ -912,6 +1021,10 @@ async def download_document(doc_id: str, user: dict = Depends(get_current_user))
     except Exception as e:
         logger.error(f"Download failed: {e}")
         raise HTTPException(status_code=500, detail="Download failed")
+    await log_audit(
+        db, user, "document.downloaded", "document", doc_id, rec.get("original_filename"),
+        {"project_id": rec.get("project_id"), "type": rec.get("type")}, request,
+    )
     return StreamingResponse(
         io.BytesIO(data),
         media_type=rec.get("content_type") or "application/octet-stream",
@@ -978,6 +1091,7 @@ async def list_scoring(user: dict = Depends(get_current_user), weights: Optional
 async def save_weights(payload: WeightsInput, user: dict = Depends(require_roles(ROLE_ADMIN))):
     w = payload.model_dump()
     await db.settings.update_one({"key": "score_weights"}, {"$set": {"value": w}}, upsert=True)
+    await log_audit(db, user, "scoring.weights_saved", "settings", "score_weights", "Scoring weights", w)
     return {"weights": w}
 
 
@@ -1049,6 +1163,11 @@ async def run_workflow_notify_designer(rev_id: str, rev: dict) -> None:
         f"Notified {designer['full_name'] if designer else 'designer'} — R{rev['revision_number']} requested.",
         lead["id"] if lead else None,
     )
+    try:
+        from notifications import dispatch_event
+        await dispatch_event(db, "notify_designer_revision", lead["id"] if lead else None, {"revision": rev, "designer": designer, "lead": lead})
+    except Exception as e:
+        logger.warning(f"Notification dispatch failed: {e}")
 
 
 @api.get("/automations")
@@ -1069,6 +1188,7 @@ async def toggle_automation(key: str, payload: AutomationToggle, user: dict = De
     if not any(a["key"] == key for a in DEFAULT_AUTOMATIONS):
         raise HTTPException(status_code=404, detail="Unknown automation")
     await db.automations.update_one({"key": key}, {"$set": {"enabled": payload.enabled}}, upsert=True)
+    await log_audit(db, user, "automation.toggled", "automation", key, key, {"enabled": payload.enabled})
     return {"key": key, "enabled": payload.enabled}
 
 
@@ -1081,6 +1201,7 @@ async def run_checks(user: dict = Depends(get_current_user)):
     today = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
     fired = 0
+    notify_targets: list[tuple[str, str, dict]] = []  # (event, lead_id, payload)
 
     if await get_automation_state("sla_breach_48h"):
         # leads idle (updated_at <= 48h ago) and Active
@@ -1090,6 +1211,7 @@ async def run_checks(user: dict = Depends(get_current_user)):
             if existing:
                 continue
             await log_signal("sla_breach_48h", f"SLA breach — {l['full_name']} idle 48h.", l["id"])
+            notify_targets.append(("sla_breach_48h", l["id"], {"lead": l}))
             fired += 1
 
     if await get_automation_state("escalate_hot_lead"):
@@ -1107,7 +1229,19 @@ async def run_checks(user: dict = Depends(get_current_user)):
                 if existing:
                     continue
                 await log_signal("escalate_hot_lead", f"Escalated Hot lead {l['full_name']} (score {s['score']}).", l["id"])
+                notify_targets.append(("escalate_hot_lead", l["id"], {"lead": l, "score": s["score"]}))
                 fired += 1
+
+    await log_audit(db, user, "automation.run_checks", "automation", "run-checks", None, {"fired": fired})
+
+    # Dispatch email notifications (best-effort, non-blocking failures)
+    if notify_targets:
+        try:
+            from notifications import dispatch_event
+            for event, lead_id, payload in notify_targets:
+                await dispatch_event(db, event, lead_id, payload)
+        except Exception as e:
+            logger.warning(f"Notification dispatch failed: {e}")
 
     return {"fired": fired}
 
@@ -1200,6 +1334,92 @@ async def command_center(user: dict = Depends(get_current_user)):
     }
 
 
+# ---------- Audit Log ----------
+@api.get("/audit")
+async def list_audit(
+    user: dict = Depends(require_roles(ROLE_ADMIN)),
+    action: Optional[str] = None,
+    actor_id: Optional[str] = None,
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    filt: dict[str, Any] = {}
+    if action:
+        filt["action"] = action
+    if actor_id:
+        filt["actor_id"] = actor_id
+    if target_type:
+        filt["target_type"] = target_type
+    if target_id:
+        filt["target_id"] = target_id
+    if q:
+        filt["$or"] = [
+            {"actor_name": {"$regex": q, "$options": "i"}},
+            {"actor_email": {"$regex": q, "$options": "i"}},
+            {"target_label": {"$regex": q, "$options": "i"}},
+            {"action": {"$regex": q, "$options": "i"}},
+        ]
+    total = await db.audit_log.count_documents(filt)
+    rows = await db.audit_log.find(filt, {"_id": 0}).sort("created_at", -1).skip(offset).limit(min(limit, 500)).to_list(500)
+    return {"total": total, "limit": limit, "offset": offset, "rows": rows}
+
+
+@api.get("/audit/actions")
+async def list_audit_actions(user: dict = Depends(require_roles(ROLE_ADMIN))):
+    rows = await db.audit_log.distinct("action")
+    return {"actions": sorted(rows)}
+
+
+# ---------- Notification settings ----------
+class NotificationSettingsInput(BaseModel):
+    enabled: bool
+    admin_email: Optional[EmailStr] = None
+    from_email: Optional[EmailStr] = None
+    events: Optional[dict[str, bool]] = None  # per-event toggles
+
+
+@api.get("/notifications/settings")
+async def get_notification_settings(user: dict = Depends(require_roles(ROLE_ADMIN))):
+    doc = await db.settings.find_one({"key": "notifications"}, {"_id": 0})
+    val = (doc or {}).get("value") or {}
+    return {
+        "enabled": bool(val.get("enabled", False)),
+        "admin_email": val.get("admin_email") or os.environ.get("ADMIN_EMAIL"),
+        "from_email": val.get("from_email") or os.environ.get("SENDER_EMAIL"),
+        "events": val.get("events") or {
+            "sla_breach_48h": True,
+            "escalate_hot_lead": True,
+            "notify_designer_revision": True,
+        },
+        "configured": bool(os.environ.get("RESEND_API_KEY")),
+    }
+
+
+@api.post("/notifications/settings")
+async def save_notification_settings(payload: NotificationSettingsInput, user: dict = Depends(require_roles(ROLE_ADMIN))):
+    value = payload.model_dump()
+    await db.settings.update_one({"key": "notifications"}, {"$set": {"value": value}}, upsert=True)
+    await log_audit(db, user, "scoring.weights_saved", "settings", "notifications", "Notification settings", value)
+    return await get_notification_settings(user)
+
+
+class TestEmailInput(BaseModel):
+    to: EmailStr
+
+
+@api.post("/notifications/test")
+async def send_test_notification(payload: TestEmailInput, user: dict = Depends(require_roles(ROLE_ADMIN))):
+    try:
+        from notifications import send_test_email
+        ok, info = await send_test_email(db, payload.to)
+        return {"ok": ok, "info": info}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ---------- Startup ----------
 @app.on_event("startup")
 async def on_startup():
@@ -1217,6 +1437,9 @@ async def on_startup():
     await db.documents.create_index("project_id")
     await db.settings.create_index("key", unique=True)
     await db.automations.create_index("key", unique=True)
+    await db.audit_log.create_index([("created_at", -1)])
+    await db.audit_log.create_index("action")
+    await db.audit_log.create_index("actor_id")
 
     # Storage
     try:
