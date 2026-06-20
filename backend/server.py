@@ -244,6 +244,35 @@ async def project_ids_for_supervisor(user_id: str) -> list[str]:
     return list({d["project_id"] async for d in cur})
 
 
+async def ensure_project_visible(user: dict, project_id: str) -> None:
+    """Forbid non-admin from touching projects not linked to leads they can access."""
+    if user["role"] == ROLE_ADMIN:
+        return
+    # If a lead is attached, defer to lead visibility
+    lead = await db.leads.find_one({"project_id": project_id}, {"_id": 0})
+    if lead and user["role"] == ROLE_SALES and lead.get("assigned_to") == user["id"]:
+        return
+    if user["role"] == ROLE_DESIGNER:
+        pids = set(await project_ids_for_designer(user["id"]))
+        # Allow if the user is creating the first revision on a project that
+        # currently has no designer assignment (initial assignment workflow).
+        # Otherwise must already be working on it.
+        if project_id in pids:
+            return
+        # Allow if no revisions yet (open project, can pick up)
+        has_revs = await db.design_revisions.count_documents({"project_id": project_id})
+        if has_revs == 0:
+            return
+    if user["role"] == ROLE_SUPERVISOR:
+        pids = set(await project_ids_for_supervisor(user["id"]))
+        if project_id in pids:
+            return
+        has_ms = await db.site_measurements.count_documents({"project_id": project_id})
+        if has_ms == 0:
+            return
+    raise HTTPException(status_code=403, detail="Not allowed for this project")
+
+
 async def visible_lead_ids(user: dict) -> Optional[set[str]]:
     """Return set of lead ids the user can see, or None for admin (all)."""
     if user["role"] == ROLE_ADMIN:
@@ -658,6 +687,7 @@ async def create_measurement(payload: MeasurementInput, user: dict = Depends(get
     proj = await db.projects.find_one({"id": payload.project_id}, {"_id": 0})
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
+    await ensure_project_visible(user, payload.project_id)
     supervisor_id = payload.supervisor_id
     if user["role"] == ROLE_SUPERVISOR:
         supervisor_id = user["id"]
@@ -722,6 +752,7 @@ async def create_revision(payload: RevisionInput, user: dict = Depends(get_curre
     proj = await db.projects.find_one({"id": payload.project_id}, {"_id": 0})
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
+    await ensure_project_visible(user, payload.project_id)
     designer_id = payload.designer_id
     if user["role"] == ROLE_DESIGNER:
         designer_id = user["id"]
@@ -829,6 +860,7 @@ async def upload_document(
     proj = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
+    await ensure_project_visible(user, project_id)
     # Role rules: designers can upload 2D CAD / 3D Render; supervisors can upload Site Measurement Sheet / Site Photo
     if user["role"] == ROLE_DESIGNER and type not in ("2D CAD", "3D Render", "Quotation PDF", "Other"):
         raise HTTPException(status_code=403, detail="Designers can upload only design files")

@@ -74,7 +74,7 @@ export default function CommandCenter() {
             </div>
             <TrendingUp className="w-4 h-4 text-clay" />
           </div>
-          <div className="h-64">
+          <div className="h-64 min-h-[200px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data.forecast_trend}>
                 <defs>
@@ -132,7 +132,7 @@ export default function CommandCenter() {
         {/* Source bar */}
         <div className="col-span-12 lg:col-span-7 bg-bone-paper border border-edge rounded-md p-5">
           <h3 className="font-serif text-xl text-ink leading-none mb-3">Pipeline Value by Source</h3>
-          <div className="h-64">
+          <div className="h-64 min-h-[200px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data.by_source} layout="vertical" margin={{ left: 30 }}>
                 <CartesianGrid stroke="#E2DCD0" strokeDasharray="3 3" />
