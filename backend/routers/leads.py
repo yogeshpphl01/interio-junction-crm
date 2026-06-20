@@ -90,14 +90,21 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
     actor_ids = {a.get("actor_id") for a in activities} | {h.get("changed_by") for h in stage_history}
     actor_ids.discard(None)
     actors = {u["id"]: u async for u in db.users.find({"id": {"$in": list(actor_ids)}}, {"_id": 0, "password_hash": 0})}
+    # Batch-load any designer / supervisor IDs missing from the actors map
+    missing_user_ids = {r.get("designer_id") for r in revisions if r.get("designer_id") and r.get("designer_id") not in actors}
+    missing_user_ids |= {m.get("supervisor_id") for m in measurements if m.get("supervisor_id") and m.get("supervisor_id") not in actors}
+    missing_user_ids.discard(None)
+    if missing_user_ids:
+        extras = {u["id"]: u async for u in db.users.find({"id": {"$in": list(missing_user_ids)}}, {"_id": 0, "password_hash": 0})}
+        actors.update(extras)
     for a in activities:
         a["actor"] = actors.get(a.get("actor_id"))
     for h in stage_history:
         h["actor"] = actors.get(h.get("changed_by"))
     for r in revisions:
-        r["designer"] = actors.get(r.get("designer_id")) or await db.users.find_one({"id": r.get("designer_id")}, {"_id": 0, "password_hash": 0})
+        r["designer"] = actors.get(r.get("designer_id"))
     for m in measurements:
-        m["supervisor"] = actors.get(m.get("supervisor_id")) or await db.users.find_one({"id": m.get("supervisor_id")}, {"_id": 0, "password_hash": 0})
+        m["supervisor"] = actors.get(m.get("supervisor_id"))
     return {
         **enriched, "measurements": measurements, "revisions": revisions,
         "payments": payments, "documents": documents,
