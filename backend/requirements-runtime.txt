@@ -1,0 +1,19 @@
+# <runtime-deps>
+#   Minimal, reliable set of packages the CRM actually imports at runtime.
+#   (The full requirements.txt is kept for the original dev environment, but it
+#   pins heavy platform extras like litellm/emergentintegrations that the CRM
+#   never imports and that fail to install on a plain server. The Docker image
+#   uses THIS file so the build is fast and reliable.)
+# </runtime-deps>
+fastapi==0.110.1
+uvicorn==0.25.0
+starlette==0.37.2
+pydantic==2.13.4
+email-validator==2.3.0
+python-dotenv==1.2.2
+asyncpg==0.31.0
+PyJWT==2.13.0
+bcrypt==4.1.3
+requests==2.34.2
+openpyxl==3.1.5
+python-multipart==0.0.32

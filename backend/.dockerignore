@@ -1,0 +1,8 @@
+# Keep the build context small + never bake secrets into the image.
+.env
+.env.*
+__pycache__/
+*.pyc
+tests/
+.pytest_cache/
+*.md

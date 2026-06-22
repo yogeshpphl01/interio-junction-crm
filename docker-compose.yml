@@ -1,0 +1,68 @@
+# =============================================================================
+# <compose name="Interio Junction CRM">
+#   One command brings up the whole CRM: PostgreSQL + API + web UI.
+#
+#   Quick start (on a server that has Docker):
+#     1) create a file named  .env  next to this file (see DEPLOYMENT.md)
+#     2) run:   docker compose up -d --build
+#     3) open:  http://YOUR_SERVER_IP/      (login admin@interiojunction.com)
+#
+#   Using your OWN PostgreSQL instead of the bundled one?
+#     - set DATABASE_URL in .env to your database, and
+#     - delete (or comment out) the whole `db:` service below + `depends_on: db`.
+# </compose>
+# =============================================================================
+services:
+
+  # <service name="db"> Bundled PostgreSQL. pgAdmin can connect to it on port 5432. </service>
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-crm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-db-password}
+      POSTGRES_DB: ${POSTGRES_DB:-interio_crm}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Exposes the DB so you can connect pgAdmin from your laptop.
+      # SECURITY: keep a strong POSTGRES_PASSWORD and firewall this port.
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-crm}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # <service name="backend"> FastAPI. Auto-creates tables + seeds demo data on boot. </service>
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # If DATABASE_URL is set in .env it wins; otherwise it points at the bundled db.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:-change-this-db-password}@db:5432/${POSTGRES_DB:-interio_crm}?sslmode=disable}
+      JWT_SECRET: ${JWT_SECRET:-please-change-this-long-random-secret}
+      CORS_ORIGINS: "*"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@interiojunction.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-interio2026}
+      DEFAULT_USER_PASSWORD: ${DEFAULT_USER_PASSWORD:-interio2026}
+    expose:
+      - "8000"
+
+  # <service name="frontend"> Nginx serving the React app + proxying /api -> backend. </service>
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_BACKEND_URL: ""   # same-origin; nginx proxies /api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  pgdata:
