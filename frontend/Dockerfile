@@ -1,5 +1,5 @@
-# <dockerfile name="frontend" stack="React (CRA 5 + CRACO) -> Nginx">
-#   Two stages: (1) build the static site with Node, (2) serve it with Nginx
+# <dockerfile name="frontend" stack="React (Vite) -> Nginx">
+#   Two stages: (1) build the static site with Vite, (2) serve it with Nginx
 #   which also proxies /api to the backend. REACT_APP_BACKEND_URL is left empty
 #   on purpose so the app calls the API at same-origin "/api".
 # </dockerfile>
@@ -8,15 +8,7 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# CI=false so ESLint warnings don't fail the production build; no sourcemaps
-# keeps the build lighter/faster on a small VPS.
-ENV CI=false
-ENV GENERATE_SOURCEMAP=false
-
 COPY package.json ./
-# This is a YARN project: package.json has a "resolutions" block + a
-# packageManager:yarn field, and yarn honours those pins while npm ignores them
-# (using npm here is what broke the ajv dependency). So install with yarn.
 RUN yarn install --network-timeout 600000
 
 COPY . .
