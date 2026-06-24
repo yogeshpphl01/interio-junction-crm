@@ -9,12 +9,15 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package.json ./
-RUN yarn install --network-timeout 600000
+# npm install (with legacy-peer-deps) is the exact, verified install path; it
+# also skips CPU/OS-mismatched optional binaries. No package-lock is committed,
+# so this resolves fresh.
+RUN npm install --legacy-peer-deps --no-audit --no-fund
 
 COPY . .
 ARG REACT_APP_BACKEND_URL=""
 ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
-RUN yarn build
+RUN npm run build
 
 # --- stage 2: serve ---
 FROM nginx:alpine
