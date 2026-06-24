@@ -239,6 +239,8 @@ docker compose up -d --build
 | "Invalid credentials" at login | The admin password is the `ADMIN_PASSWORD` from `.env`. If you changed it *after* the first start, the old one is already saved — log in with the original, then change it in **Settings**. |
 | pgAdmin can't connect | Check port **5432** is open in the VPS firewall and the password matches `POSTGRES_PASSWORD`. |
 | Import says "Could not read spreadsheet" | Make sure it's the `.xlsx` (or `.csv`) exported from Meta Lead Ads. |
+| `docker compose up` says **"port is already allocated" / address already in use** | Another program already uses that port (often an existing Traefik/Nginx on port 80). Add `WEB_PORT=8080` to your `.env` (and `DB_PORT=5433` if 5432 clashes), run `docker compose up -d` again, then open `http://YOUR_IP:8080`. |
+| You already run a **reverse proxy (Traefik/Nginx)** on this server | Don't fight it — set `WEB_PORT=8080` so the CRM serves on a free port. Later we can route your domain to it through the existing proxy. |
 | Need to start clean | `docker compose down -v` wipes the database too (careful!), then `docker compose up -d --build`. |
 
 ---
