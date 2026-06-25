@@ -67,6 +67,12 @@ ROLE_ADMIN = "admin"
 ROLE_SALES = "sales"
 ROLE_DESIGNER = "designer"
 ROLE_SUPERVISOR = "supervisor"
+# <role name="manager">
+#   NEW. Uploads campaign lead sheets and assigns leads to the sales team.
+#   For lead visibility/operations a manager behaves like an admin (sees all
+#   leads), but it is NOT granted user-management / audit / settings access.
+# </role>
+ROLE_MANAGER = "manager"
 
 DEFAULT_AUTOMATIONS = [
     {"key": "auto_assign_supervisor", "name": "Auto-assign Site Supervisor", "description": "When a lead enters Site Measurement, auto-assign an available supervisor.", "enabled": True},
@@ -94,9 +100,14 @@ class LoginInput(BaseModel):
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str
-    role: Literal["admin", "sales", "designer", "supervisor"]
+    role: Literal["admin", "manager", "sales", "designer", "supervisor"]
     phone: Optional[str] = None
     password: Optional[str] = None
+
+
+class ChangePasswordInput(BaseModel):
+    current: str
+    new: str
 
 
 class LeadCreate(BaseModel):
@@ -256,8 +267,8 @@ async def project_ids_for_supervisor(user_id: str) -> list[str]:
 
 
 async def visible_lead_ids(user: dict) -> Optional[set[str]]:
-    """Return set of lead ids the user can see, or None for admin (all)."""
-    if user["role"] == ROLE_ADMIN:
+    """Return set of lead ids the user can see, or None for admin/manager (all)."""
+    if user["role"] in (ROLE_ADMIN, ROLE_MANAGER):
         return None
     if user["role"] == ROLE_SALES:
         ids = await db.leads.find({"assigned_to": user["id"]}, {"id": 1, "_id": 0}).to_list(10000)

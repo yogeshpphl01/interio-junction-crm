@@ -11,9 +11,9 @@
 </module>
 """
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
-from core import db, LoginInput, get_current_user
+from core import db, LoginInput, ChangePasswordInput, get_current_user
 from auth_utils import (
-    verify_password, create_access_token, create_refresh_token,
+    verify_password, hash_password, create_access_token, create_refresh_token,
     set_auth_cookies, clear_auth_cookies, decode_token,
 )
 from audit import log_audit
@@ -50,6 +50,22 @@ async def logout(response: Response, request: Request, user: dict = Depends(get_
 @router.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return user
+
+
+@router.post("/auth/change-password")
+async def change_password(body: ChangePasswordInput, user: dict = Depends(get_current_user)):
+    """Any logged-in user can change their own password (verifies the current one)."""
+    if not body.new or len(body.new) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    full = await db.users.find_one({"id": user["id"]})
+    if not full or not verify_password(body.current, full["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": hash_password(body.new), "must_change_password": False}},
+    )
+    await log_audit(db, user, "user.password_changed", "user", user["id"], user.get("full_name"), {})
+    return {"ok": True}
 
 
 @router.post("/auth/refresh")

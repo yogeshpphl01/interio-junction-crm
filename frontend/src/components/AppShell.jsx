@@ -10,9 +10,10 @@ import { useNavigate, Link, useLocation, Outlet } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { ROLE_LABEL, ROLE_COLOR } from "@/lib/constants";
 import { initials } from "@/lib/format";
+import ChangePasswordModal from "@/components/ChangePasswordModal";
 import {
   LayoutDashboard, Columns3, Users, Ruler, BarChart3, Settings, LogOut,
-  Sparkles, Workflow, Menu, X, ScrollText, Bell,
+  Sparkles, Workflow, Menu, X, ScrollText, Bell, KeyRound,
 } from "lucide-react";
 
 const NAV = [
@@ -33,6 +34,7 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showChangePwd, setShowChangePwd] = useState(false);
 
   if (!user) return null;
   const visible = NAV.filter((n) => n.roles.includes(user.role));
@@ -104,6 +106,14 @@ export default function AppShell() {
               <div className="text-[11px] text-ink-muted truncate">{ROLE_LABEL[user.role]}</div>
             </div>
             <button
+              onClick={() => setShowChangePwd(true)}
+              data-testid="change-password-btn"
+              className="p-2 rounded hover:bg-bone-subtle text-ink-soft"
+              title="Change password"
+            >
+              <KeyRound className="w-4 h-4" />
+            </button>
+            <button
               onClick={onLogout}
               data-testid="logout-btn"
               className="p-2 rounded hover:bg-bone-subtle text-ink-soft"
@@ -146,6 +156,8 @@ export default function AppShell() {
           <Outlet />
         </div>
       </main>
+
+      {showChangePwd && <ChangePasswordModal onClose={() => setShowChangePwd(false)} />}
     </div>
   );
 }

@@ -74,6 +74,8 @@ SCHEMA: dict[str, dict] = {
             "role": "TEXT",
             "phone": "TEXT",
             "is_active": "BOOLEAN",
+            "must_change_password": "BOOLEAN",  # set after admin generates a password
+            "created_by": "TEXT",
             "created_at": "TEXT",
         },
         "json": [],

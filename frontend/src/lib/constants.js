@@ -30,6 +30,7 @@ export const LIFECYCLE_COLOR = LIFECYCLE.reduce((m, p) => ((m[p.key] = p.color),
 
 export const ROLE_LABEL = {
   admin: "Admin / CEO",
+  manager: "Manager",
   sales: "Sales Executive",
   designer: "Designer",
   supervisor: "Site Supervisor",
@@ -37,6 +38,7 @@ export const ROLE_LABEL = {
 
 export const ROLE_COLOR = {
   admin: "#C2683D",
+  manager: "#8A9A5B",
   sales: "#8A5A3B",
   designer: "#9C6644",
   supervisor: "#6B705C",
