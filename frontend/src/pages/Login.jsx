@@ -1,7 +1,7 @@
 /*
   <page name="Login" route="/login">
     <purpose>Email/password sign-in. Delegates to useAuth().login and redirects
-    to "/" on success. Prefilled with the demo admin for convenience.</purpose>
+    to "/" on success. Fields start BLANK (no credential hints) for security.</purpose>
   </page>
 */
 import { useState } from "react";
@@ -11,8 +11,8 @@ import { useAuth } from "@/contexts/AuthContext";
 export default function Login() {
   const { user, login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("admin@interiojunction.com");
-  const [password, setPassword] = useState("interio2026");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -94,31 +94,6 @@ export default function Login() {
               {submitting ? "Signing in…" : "Sign in"}
             </button>
           </form>
-
-          <div className="mt-10 p-4 bg-bone-paper border border-edge rounded-md" data-testid="demo-creds">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-ink-muted font-semibold mb-2">
-              Demo accounts · password: <span className="text-clay font-mono">interio2026</span>
-            </div>
-            <div className="grid grid-cols-1 gap-1.5 text-[12px]">
-              {[
-                ["Admin / CEO", "admin@interiojunction.com"],
-                ["Sales Exec", "sales@interiojunction.com"],
-                ["Designer", "designer@interiojunction.com"],
-                ["Site Supervisor", "supervisor@interiojunction.com"],
-              ].map(([role, em]) => (
-                <button
-                  type="button"
-                  key={em}
-                  onClick={() => setEmail(em)}
-                  data-testid={`demo-${em.split("@")[0]}`}
-                  className="flex justify-between items-center text-left hover:bg-bone-subtle rounded px-2 py-1 transition"
-                >
-                  <span className="text-ink-soft">{role}</span>
-                  <span className="text-ink font-mono text-[11px]">{em}</span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
 
