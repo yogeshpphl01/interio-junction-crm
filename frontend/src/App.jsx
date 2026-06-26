@@ -44,7 +44,7 @@ export default function App() {
             <Route
               path="/scoring"
               element={
-                <ProtectedRoute roles={["admin", "sales"]}>
+                <ProtectedRoute roles={["ceo", "admin", "manager", "sales"]}>
                   <LeadScoring />
                 </ProtectedRoute>
               }
@@ -52,7 +52,7 @@ export default function App() {
             <Route
               path="/automations"
               element={
-                <ProtectedRoute roles={["admin", "sales"]}>
+                <ProtectedRoute roles={["ceo", "admin", "manager", "sales"]}>
                   <Automations />
                 </ProtectedRoute>
               }
@@ -60,7 +60,7 @@ export default function App() {
             <Route
               path="/analytics"
               element={
-                <ProtectedRoute roles={["admin"]}>
+                <ProtectedRoute roles={["ceo", "admin"]}>
                   <CommandCenter />
                 </ProtectedRoute>
               }
@@ -68,7 +68,7 @@ export default function App() {
             <Route
               path="/settings"
               element={
-                <ProtectedRoute roles={["admin"]}>
+                <ProtectedRoute roles={["ceo", "admin"]}>
                   <Settings />
                 </ProtectedRoute>
               }
@@ -76,7 +76,7 @@ export default function App() {
             <Route
               path="/audit"
               element={
-                <ProtectedRoute roles={["admin"]}>
+                <ProtectedRoute roles={["ceo", "admin"]}>
                   <Audit />
                 </ProtectedRoute>
               }
@@ -84,7 +84,7 @@ export default function App() {
             <Route
               path="/notifications"
               element={
-                <ProtectedRoute roles={["admin"]}>
+                <ProtectedRoute roles={["ceo", "admin"]}>
                   <NotificationSettings />
                 </ProtectedRoute>
               }

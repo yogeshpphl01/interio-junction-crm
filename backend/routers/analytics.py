@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends
 from core import (
     db, get_current_user, visible_lead_ids,
-    STAGES, STAGE_WIN_RATE, ROLE_ADMIN, ROLE_SALES, ROLE_MANAGER,
+    STAGES, STAGE_WIN_RATE, ROLE_CEO, ROLE_ADMIN, ROLE_SALES, ROLE_MANAGER,
     LEAD_LIFECYCLE_PHASES, derive_lifecycle_phase,
 )
 
@@ -13,7 +13,7 @@ router = APIRouter()
 @router.get("/analytics/command-center")
 async def command_center(user: dict = Depends(get_current_user)):
     filt: dict = {}
-    if user["role"] in (ROLE_ADMIN, ROLE_MANAGER):
+    if user["role"] in (ROLE_CEO, ROLE_ADMIN, ROLE_MANAGER):
         scope = "company"
     elif user["role"] == ROLE_SALES:
         filt["assigned_to"] = user["id"]

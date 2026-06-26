@@ -11,7 +11,7 @@
 </module>
 """
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
-from core import db, LoginInput, ChangePasswordInput, get_current_user
+from core import db, LoginInput, ChangePasswordInput, ProfileUpdate, get_current_user
 from auth_utils import (
     verify_password, hash_password, create_access_token, create_refresh_token,
     set_auth_cookies, clear_auth_cookies, decode_token,
@@ -66,6 +66,24 @@ async def change_password(body: ChangePasswordInput, user: dict = Depends(get_cu
     )
     await log_audit(db, user, "user.password_changed", "user", user["id"], user.get("full_name"), {})
     return {"ok": True}
+
+
+@router.patch("/auth/profile")
+async def update_own_profile(body: ProfileUpdate, user: dict = Depends(get_current_user)):
+    """Module 1.4 — any user edits their OWN personal details (name/phone).
+    Every change is written to the immutable audit log (before -> after)."""
+    full = await db.users.find_one({"id": user["id"]})
+    update, changes = {}, {}
+    for field in ("full_name", "phone"):
+        val = getattr(body, field)
+        if val is not None and val != full.get(field):
+            update[field] = val
+            changes[field] = {"from": full.get(field), "to": val}
+    if not update:
+        return await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    await db.users.update_one({"id": user["id"]}, {"$set": update})
+    await log_audit(db, user, "user.profile_updated", "user", user["id"], update.get("full_name", user.get("full_name")), {"changes": changes})
+    return await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
 
 
 @router.post("/auth/refresh")

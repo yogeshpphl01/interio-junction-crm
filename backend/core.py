@@ -73,6 +73,16 @@ ROLE_SUPERVISOR = "supervisor"
 #   leads), but it is NOT granted user-management / audit / settings access.
 # </role>
 ROLE_MANAGER = "manager"
+# <role name="ceo">
+#   Super-admin. Has every admin capability PLUS the authority to hard-DELETE
+#   accounts. A CEO account itself can never be deactivated or deleted.
+# </role>
+ROLE_CEO = "ceo"
+# Roles with full company-wide lead visibility + admin-equivalent reach.
+ADMIN_ROLES = (ROLE_CEO, ROLE_ADMIN)
+FULL_VISIBILITY_ROLES = (ROLE_CEO, ROLE_ADMIN, ROLE_MANAGER)
+# Built-in roles. Custom categories (Module 7) are added on top of these.
+BUILTIN_ROLES = [ROLE_CEO, ROLE_ADMIN, ROLE_MANAGER, ROLE_SALES, ROLE_DESIGNER, ROLE_SUPERVISOR]
 
 DEFAULT_AUTOMATIONS = [
     {"key": "auto_assign_supervisor", "name": "Auto-assign Site Supervisor", "description": "When a lead enters Site Measurement, auto-assign an available supervisor.", "enabled": True},
@@ -98,9 +108,11 @@ class LoginInput(BaseModel):
 
 
 class UserCreate(BaseModel):
+    # role is validated against the roles table at the endpoint, so any custom
+    # category is accepted too (not just the built-in roles).
     email: EmailStr
     full_name: str
-    role: Literal["admin", "manager", "sales", "designer", "supervisor"]
+    role: str
     phone: Optional[str] = None
     password: Optional[str] = None
 
@@ -108,6 +120,12 @@ class UserCreate(BaseModel):
 class ChangePasswordInput(BaseModel):
     current: str
     new: str
+
+
+class ProfileUpdate(BaseModel):
+    """Self-service personal-detail edit (any logged-in user). Logged to audit."""
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class LeadCreate(BaseModel):
@@ -267,8 +285,8 @@ async def project_ids_for_supervisor(user_id: str) -> list[str]:
 
 
 async def visible_lead_ids(user: dict) -> Optional[set[str]]:
-    """Return set of lead ids the user can see, or None for admin/manager (all)."""
-    if user["role"] in (ROLE_ADMIN, ROLE_MANAGER):
+    """Return set of lead ids the user can see, or None for ceo/admin/manager (all)."""
+    if user["role"] in FULL_VISIBILITY_ROLES:
         return None
     if user["role"] == ROLE_SALES:
         ids = await db.leads.find({"assigned_to": user["id"]}, {"id": 1, "_id": 0}).to_list(10000)

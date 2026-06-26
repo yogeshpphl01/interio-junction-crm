@@ -42,6 +42,14 @@ def _seed_lifecycle(stage: int) -> str:
 
 SEED_USERS = [
     {
+        # <ceo>Super-account — full authority incl. hard-delete; cannot itself be
+        #   deactivated or deleted. Initial password = ADMIN_PASSWORD env.</ceo>
+        "email": os.environ.get("CEO_EMAIL", "ceo@interiojunction.com"),
+        "full_name": "Yogesh Pophale",
+        "role": "ceo",
+        "phone": os.environ.get("CEO_PHONE", ""),
+    },
+    {
         "email": os.environ.get("ADMIN_EMAIL", "admin@interiojunction.com"),
         "full_name": "Aanya Mehra",
         "role": "admin",
@@ -75,7 +83,7 @@ async def seed_users(db) -> dict[str, str]:
     email_to_id: dict[str, str] = {}
     for u in SEED_USERS:
         existing = await db.users.find_one({"email": u["email"]})
-        pwd = admin_pwd if u["role"] == "admin" else default_pwd
+        pwd = admin_pwd if u["role"] in ("admin", "ceo") else default_pwd
         if existing:
             email_to_id[u["email"]] = existing["id"]
             continue
@@ -87,6 +95,7 @@ async def seed_users(db) -> dict[str, str]:
             "role": u["role"],
             "phone": u["phone"],
             "is_active": True,
+            "must_change_password": u["role"] == "ceo",  # CEO sets own password on first login
             "created_at": _iso(datetime.now(timezone.utc)),
         }
         await db.users.insert_one(doc)

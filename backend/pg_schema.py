@@ -84,6 +84,30 @@ SCHEMA: dict[str, dict] = {
         ],
     },
 
+    # <table name="roles">
+    #   <purpose>
+    #     Account categories. Built-in roles (is_system) live here alongside any
+    #     custom categories the CEO/Admin create (Module 7). Deleting a custom
+    #     category sets is_deleted (the record is kept, never physically removed).
+    #   </purpose>
+    # </table>
+    "roles": {
+        "pk": "key",
+        "columns": {
+            "key": "TEXT",
+            "label": "TEXT",
+            "color": "TEXT",
+            "base_role": "TEXT",       # built-in role a custom category mirrors (optional)
+            "permissions": "JSONB",    # explicit permission keys
+            "is_system": "BOOLEAN",    # built-in, non-deletable
+            "is_deleted": "BOOLEAN",   # soft-deleted custom category (record retained)
+            "created_by": "TEXT",
+            "created_at": "TEXT",
+        },
+        "json": ["permissions"],
+        "indexes": [],
+    },
+
     # <table name="leads">
     #   <purpose>The Kanban cards — one row per prospective customer.</purpose>
     #   <new-fields>

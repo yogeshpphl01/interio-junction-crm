@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from core import (
     db, get_current_user, require_roles, DEFAULT_AUTOMATIONS,
     get_automation_state, log_signal, AutomationToggle,
-    ROLE_ADMIN,
+    ROLE_CEO, ROLE_ADMIN,
 )
 from scoring import compute_score, DEFAULT_WEIGHTS
 from audit import log_audit
@@ -38,7 +38,7 @@ async def list_automations(user: dict = Depends(get_current_user)):
 
 
 @router.patch("/automations/{key}")
-async def toggle_automation(key: str, payload: AutomationToggle, user: dict = Depends(require_roles(ROLE_ADMIN))):
+async def toggle_automation(key: str, payload: AutomationToggle, user: dict = Depends(require_roles(ROLE_CEO, ROLE_ADMIN))):
     if not any(a["key"] == key for a in DEFAULT_AUTOMATIONS):
         raise HTTPException(status_code=404, detail="Unknown automation")
     await db.automations.update_one({"key": key}, {"$set": {"enabled": payload.enabled}}, upsert=True)

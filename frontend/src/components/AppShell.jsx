@@ -11,22 +11,23 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ROLE_LABEL, ROLE_COLOR } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import ChangePasswordModal from "@/components/ChangePasswordModal";
+import EditProfileModal from "@/components/EditProfileModal";
 import {
   LayoutDashboard, Columns3, Users, Ruler, BarChart3, Settings, LogOut,
-  Sparkles, Workflow, Menu, X, ScrollText, Bell, KeyRound,
+  Sparkles, Workflow, Menu, X, ScrollText, Bell, KeyRound, Pencil,
 } from "lucide-react";
 
 const NAV = [
-  { to: "/", label: "Command Center", icon: LayoutDashboard, roles: ["admin", "sales", "designer", "supervisor"] },
-  { to: "/pipeline", label: "Pipeline", icon: Columns3, roles: ["admin", "sales", "designer", "supervisor"] },
-  { to: "/leads", label: "Leads", icon: Users, roles: ["admin", "sales"] },
-  { to: "/site-visits", label: "Site Visits", icon: Ruler, roles: ["admin", "sales", "supervisor"] },
-  { to: "/scoring", label: "Lead Scoring", icon: Sparkles, roles: ["admin", "sales"] },
-  { to: "/automations", label: "Automations", icon: Workflow, roles: ["admin", "sales"] },
-  { to: "/notifications", label: "Notifications", icon: Bell, roles: ["admin"] },
-  { to: "/analytics", label: "Analytics", icon: BarChart3, roles: ["admin"] },
-  { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["admin"] },
-  { to: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
+  { to: "/", label: "Command Center", icon: LayoutDashboard, roles: ["ceo", "admin", "manager", "sales", "designer", "supervisor"] },
+  { to: "/pipeline", label: "Pipeline", icon: Columns3, roles: ["ceo", "admin", "manager", "sales", "designer", "supervisor"] },
+  { to: "/leads", label: "Leads", icon: Users, roles: ["ceo", "admin", "manager", "sales"] },
+  { to: "/site-visits", label: "Site Visits", icon: Ruler, roles: ["ceo", "admin", "manager", "sales", "supervisor"] },
+  { to: "/scoring", label: "Lead Scoring", icon: Sparkles, roles: ["ceo", "admin", "manager", "sales"] },
+  { to: "/automations", label: "Automations", icon: Workflow, roles: ["ceo", "admin", "manager", "sales"] },
+  { to: "/notifications", label: "Notifications", icon: Bell, roles: ["ceo", "admin"] },
+  { to: "/analytics", label: "Analytics", icon: BarChart3, roles: ["ceo", "admin"] },
+  { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["ceo", "admin"] },
+  { to: "/settings", label: "Settings", icon: Settings, roles: ["ceo", "admin"] },
 ];
 
 export default function AppShell() {
@@ -35,6 +36,7 @@ export default function AppShell() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showChangePwd, setShowChangePwd] = useState(false);
+  const [showEditProfile, setShowEditProfile] = useState(false);
 
   if (!user) return null;
   const visible = NAV.filter((n) => n.roles.includes(user.role));
@@ -106,6 +108,14 @@ export default function AppShell() {
               <div className="text-[11px] text-ink-muted truncate">{ROLE_LABEL[user.role]}</div>
             </div>
             <button
+              onClick={() => setShowEditProfile(true)}
+              data-testid="edit-profile-btn"
+              className="p-2 rounded hover:bg-bone-subtle text-ink-soft"
+              title="Edit profile"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+            <button
               onClick={() => setShowChangePwd(true)}
               data-testid="change-password-btn"
               className="p-2 rounded hover:bg-bone-subtle text-ink-soft"
@@ -158,6 +168,7 @@ export default function AppShell() {
       </main>
 
       {showChangePwd && <ChangePasswordModal onClose={() => setShowChangePwd(false)} />}
+      {showEditProfile && <EditProfileModal onClose={() => setShowEditProfile(false)} />}
     </div>
   );
 }

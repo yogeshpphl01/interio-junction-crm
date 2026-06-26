@@ -9,12 +9,15 @@
 */
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { ROLE_LABEL, ROLE_COLOR } from "@/lib/constants";
 import { initials, fmtDate } from "@/lib/format";
 import { toast, Toaster } from "sonner";
-import { Plus, KeyRound, UserX, UserCheck, Copy, Check } from "lucide-react";
+import { Plus, KeyRound, UserX, UserCheck, Copy, Check, Trash2 } from "lucide-react";
 
 export default function Settings() {
+  const { user: me } = useAuth();
+  const isCeo = me?.role === "ceo";
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -42,13 +45,20 @@ export default function Settings() {
 
   const toggleActive = async (u) => {
     try {
-      if (u.is_active) {
-        await api.delete(`/users/${u.id}`);
-        toast.success("Account deactivated");
-      } else {
-        await api.patch(`/users/${u.id}`, { is_active: true });
-        toast.success("Account reactivated");
-      }
+      await api.post(`/users/${u.id}/${u.is_active ? "deactivate" : "activate"}`);
+      toast.success(u.is_active ? "Account deactivated" : "Account reactivated");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed");
+    }
+  };
+
+  // Hard delete — CEO only; the backend also forbids deleting a CEO account.
+  const hardDelete = async (u) => {
+    if (!window.confirm(`Permanently delete ${u.full_name} (${u.email})?\nThis cannot be undone. Their past actions stay in the audit log.`)) return;
+    try {
+      await api.delete(`/users/${u.id}`);
+      toast.success("Account deleted");
       load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed");
@@ -107,14 +117,27 @@ export default function Settings() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
-                    <button onClick={() => resetPwd(u)} title="Reset password" data-testid={`reset-pwd-${u.email}`}
-                      className="p-1.5 rounded hover:bg-bone-subtle text-ink-soft hover:text-clay">
-                      <KeyRound className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => toggleActive(u)} title={u.is_active ? "Deactivate" : "Reactivate"} data-testid={`toggle-active-${u.email}`}
-                      className="p-1.5 rounded hover:bg-bone-subtle text-ink-soft hover:text-clay">
-                      {u.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-                    </button>
+                    {(u.role !== "ceo" || isCeo) && (
+                      <button onClick={() => resetPwd(u)} title="Reset password" data-testid={`reset-pwd-${u.email}`}
+                        className="p-1.5 rounded hover:bg-bone-subtle text-ink-soft hover:text-clay">
+                        <KeyRound className="w-4 h-4" />
+                      </button>
+                    )}
+                    {u.role !== "ceo" && (
+                      <button onClick={() => toggleActive(u)} title={u.is_active ? "Deactivate" : "Reactivate"} data-testid={`toggle-active-${u.email}`}
+                        className="p-1.5 rounded hover:bg-bone-subtle text-ink-soft hover:text-clay">
+                        {u.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                      </button>
+                    )}
+                    {isCeo && u.role !== "ceo" && (
+                      <button onClick={() => hardDelete(u)} title="Delete permanently (CEO)" data-testid={`delete-${u.email}`}
+                        className="p-1.5 rounded hover:bg-clay/10 text-ink-soft hover:text-clay-deep">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                    {u.role === "ceo" && (
+                      <span className="text-[10px] uppercase tracking-wide text-ink-muted italic px-1">protected</span>
+                    )}
                   </div>
                 </td>
               </tr>
