@@ -14,7 +14,7 @@ import time
 from collections import deque
 from fastapi import APIRouter, HTTPException, Depends
 from core import (
-    db, require_roles, NotificationSettingsInput, TestEmailInput, ROLE_ADMIN,
+    db, require_permission, NotificationSettingsInput, TestEmailInput,
 )
 from audit import log_audit
 
@@ -70,12 +70,12 @@ async def _get_settings(user: dict) -> dict:
 
 
 @router.get("/notifications/settings")
-async def get_notification_settings(user: dict = Depends(require_roles(ROLE_ADMIN))):
+async def get_notification_settings(user: dict = Depends(require_permission("notifications.manage"))):
     return await _get_settings(user)
 
 
 @router.post("/notifications/settings")
-async def save_notification_settings(payload: NotificationSettingsInput, user: dict = Depends(require_roles(ROLE_ADMIN))):
+async def save_notification_settings(payload: NotificationSettingsInput, user: dict = Depends(require_permission("notifications.manage"))):
     value = payload.model_dump()
     await db.settings.update_one({"key": "notifications"}, {"$set": {"value": value}}, upsert=True)
     await log_audit(db, user, "notifications.settings_saved", "settings", "notifications", "Notification settings", value)
@@ -83,7 +83,7 @@ async def save_notification_settings(payload: NotificationSettingsInput, user: d
 
 
 @router.post("/notifications/test")
-async def send_test_notification(payload: TestEmailInput, user: dict = Depends(require_roles(ROLE_ADMIN))):
+async def send_test_notification(payload: TestEmailInput, user: dict = Depends(require_permission("notifications.manage"))):
     ok_rate, retry = _check_test_rate(user["id"])
     if not ok_rate:
         raise HTTPException(

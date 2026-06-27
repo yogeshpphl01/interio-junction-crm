@@ -212,7 +212,57 @@ database instead of the bundled one.
 
 ---
 
-## 10. Everyday commands (for later)
+## 10. (Optional) Turn on email — password reset + notifications
+
+The CRM can email people: **password-reset codes** (when someone clicks
+"Forgot password?") and **alert notifications** (SLA / hot-lead reminders).
+Until you set this up, password-reset codes are written to the backend logs
+instead of being emailed — fine for testing, not for real users.
+
+You need a mailbox to send *from* — easiest is one on your own domain, e.g.
+`crm@interiojunction.com`, created in Hostinger → **Emails**.
+
+**a) Find your mailbox's SMTP details.** Hostinger → **Emails** → your email
+account → **Configure / Connect Devices** → look for "Outgoing (SMTP)". It's
+usually one of:
+
+| If your email is… | SMTP host | Port |
+|---|---|---|
+| Hostinger **Titan** email | `smtp.titan.email` | `465` |
+| Hostinger **Business / web** email | `smtp.hostinger.com` | `465` |
+
+**b) Add these lines to your `.env`** (the same file from step 5):
+
+```ini
+SMTP_HOST=smtp.titan.email             # 👈 from step (a)
+SMTP_PORT=465
+SMTP_USER=crm@interiojunction.com      # 👈 the full mailbox address
+SMTP_PASSWORD=your-mailbox-password    # 👈 that mailbox's password
+SENDER_EMAIL=crm@interiojunction.com   # 👈 usually the same as SMTP_USER
+SENDER_NAME=Interio Junction
+```
+
+**c) Apply it** (no rebuild needed — it just restarts with the new settings):
+
+```bash
+docker compose up -d
+```
+
+**d) Test it.** Log in as an admin → **Notifications** (left menu) → **Send test
+email**. If it arrives, password-reset emails will work too. (Or just use
+"Forgot password?" on the login page and check the recovery inbox.)
+
+> 🔐 Your `.env` holds the mailbox password — it stays on the server only and is
+> never committed to GitHub.
+
+> ✉️ Sending limits: a single mailbox sends a limited number of emails per hour —
+> plenty for password resets + alerts. When the team grows large, switch to a
+> dedicated email service (and later SMS); the app is already built to plug those
+> in by changing one setting.
+
+---
+
+## 11. Everyday commands (for later)
 
 Run these from inside the `interio-junction-crm` folder on the server:
 
@@ -231,7 +281,7 @@ docker compose up -d --build
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -241,11 +291,12 @@ docker compose up -d --build
 | Import says "Could not read spreadsheet" | Make sure it's the `.xlsx` (or `.csv`) exported from Meta Lead Ads. |
 | `docker compose up` says **"port is already allocated" / address already in use** | Another program already uses that port (often an existing Traefik/Nginx on port 80). Add `WEB_PORT=8080` to your `.env` (and `DB_PORT=5433` if 5432 clashes), run `docker compose up -d` again, then open `http://YOUR_IP:8080`. |
 | You already run a **reverse proxy (Traefik/Nginx)** on this server | Don't fight it — set `WEB_PORT=8080` so the CRM serves on a free port. Later we can route your domain to it through the existing proxy. |
+| "Forgot password" code never arrives | Email isn't set up yet (see section 10) or it went to spam. Before SMTP is configured the code is written to the logs — read it with `docker compose logs backend \| grep "reset code"`. After configuring, use **Notifications → Send test email** to confirm delivery. |
 | Need to start clean | `docker compose down -v` wipes the database too (careful!), then `docker compose up -d --build`. |
 
 ---
 
-## 12. (Optional, later) Use a domain + HTTPS
+## 13. (Optional, later) Use a domain + HTTPS
 
 Once it works on the IP, you can point a domain at the server's IP (an **A
 record**) and add free HTTPS. That's an optional polish step — tell me when

@@ -3,11 +3,11 @@ import uuid
 from typing import Optional, Any
 from fastapi import APIRouter, HTTPException, Depends, Request
 from core import (
-    db, get_current_user, ensure_lead_visible, enrich_leads, visible_lead_ids,
+    db, get_current_user, ensure_lead_visible, enrich_leads, visible_lead_ids, has_permission,
     next_project_code, evaluate_gate, run_workflow_auto_assign_supervisor,
     LeadCreate, LeadUpdate, StageMoveInput, CloseLeadInput, now_iso,
     STAGES, LEAD_TYPES, BHK_TYPES, KITCHEN_LAYOUTS, LEAD_SOURCES,
-    ROLE_ADMIN, ROLE_SALES,
+    ROLE_CEO, ROLE_ADMIN, ROLE_SALES, ROLE_MANAGER,
     # <journey-helpers>maintain lifecycle_phase / furthest_stage / journey</journey-helpers>
     derive_lifecycle_phase, init_journey, record_stage_transition,
     close_open_journey_entry, JOURNEY_DELIVERED_STAGE,
@@ -18,26 +18,38 @@ router = APIRouter()
 
 
 @router.get("/leads")
-async def list_leads(user: dict = Depends(get_current_user), stage: Optional[int] = None, status: Optional[str] = None):
+async def list_leads(
+    user: dict = Depends(get_current_user),
+    stage: Optional[int] = None,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+):
     filt: dict = {}
-    if user["role"] == ROLE_ADMIN:
-        pass
-    elif user["role"] == ROLE_SALES:
-        filt["assigned_to"] = user["id"]
-    else:
-        ids = await visible_lead_ids(user)
-        filt["id"] = {"$in": list(ids or [])}
+    # Visibility is permission-driven (leads.view_all => all; otherwise own/project).
+    ids = await visible_lead_ids(user)
+    if ids is not None:
+        filt["id"] = {"$in": list(ids)}
     if stage is not None:
         filt["stage"] = stage
     if status:
         filt["status"] = status
+    # <search>Server-side search across Name / City / phone / email / Client ID
+    #   (Client ID = the project code, resolved via the projects table).</search>
+    if q and q.strip():
+        term = q.strip()
+        or_clauses = [{f: {"$regex": term, "$options": "i"}}
+                      for f in ("full_name", "city", "phone", "email", "meta_lead_id")]
+        proj_rows = await db.projects.find({"project_code": {"$regex": term, "$options": "i"}}, {"id": 1, "_id": 0}).to_list(500)
+        if proj_rows:
+            or_clauses.append({"project_id": {"$in": [p["id"] for p in proj_rows]}})
+        filt["$or"] = or_clauses
     leads = await db.leads.find(filt, {"_id": 0}).sort("updated_at", -1).to_list(2000)
     return await enrich_leads(leads)
 
 
 @router.post("/leads")
 async def create_lead(payload: LeadCreate, user: dict = Depends(get_current_user)):
-    if user["role"] not in (ROLE_ADMIN, ROLE_SALES):
+    if not has_permission(user, "leads.edit"):
         raise HTTPException(status_code=403, detail="Only admin/sales can create leads")
     if payload.lead_type not in LEAD_TYPES:
         raise HTTPException(status_code=400, detail="Invalid lead_type")
@@ -126,7 +138,7 @@ async def update_lead(lead_id: str, payload: LeadUpdate, user: dict = Depends(ge
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     await ensure_lead_visible(user, lead)
-    if user["role"] not in (ROLE_ADMIN, ROLE_SALES):
+    if not has_permission(user, "leads.edit"):
         raise HTTPException(status_code=403, detail="Only admin/sales can edit leads")
     update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     update["updated_at"] = now_iso()
@@ -143,7 +155,7 @@ async def close_lead(lead_id: str, payload: CloseLeadInput, request: Request, us
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     await ensure_lead_visible(user, lead)
-    if user["role"] not in (ROLE_ADMIN, ROLE_SALES):
+    if not has_permission(user, "leads.edit"):
         raise HTTPException(status_code=403, detail="Only admin/sales can close leads")
     if payload.status == "Lost" and not (payload.reason and payload.reason.strip()):
         raise HTTPException(status_code=400, detail="Lost reason is required")
@@ -226,7 +238,7 @@ async def move_lead(lead_id: str, payload: StageMoveInput, user: dict = Depends(
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if user["role"] not in (ROLE_ADMIN, ROLE_SALES):
+    if not has_permission(user, "leads.edit"):
         raise HTTPException(status_code=403, detail="Only admin/sales can move leads")
     await ensure_lead_visible(user, lead)
     to = int(payload.to_stage)

@@ -14,31 +14,37 @@ export default function Leads() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");  // server-side search term
   const [stage, setStage] = useState("");
   const [status, setStatus] = useState("");
   const [lifecycle, setLifecycle] = useState("");   // NEW: client-side journey filter
   const [showImport, setShowImport] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);     // bump to re-fetch after import
 
-  const canImport = user && (user.role === "admin" || user.role === "sales");
+  const canImport = user && (user.role === "admin" || user.role === "manager" || user.role === "sales");
 
+  // Debounce the search box so we don't hit the API on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // Search is now SERVER-SIDE (Name / City / phone / email / Client ID),
+  // so it works across ALL leads, not just the loaded page.
   useEffect(() => {
     setLoading(true);
     const params = {};
     if (stage) params.stage = Number(stage);
     if (status) params.status = status;
+    if (debouncedQ) params.q = debouncedQ;
     api
       .get("/leads", { params })
       .then((r) => setLeads(r.data))
       .finally(() => setLoading(false));
-  }, [stage, status, reloadKey]);
+  }, [stage, status, debouncedQ, reloadKey]);
 
-  // Search + lifecycle filtering happen client-side on the fetched rows.
-  const filtered = leads.filter(
-    (l) =>
-      (!q || (l.full_name + " " + (l.city || "") + " " + (l.project?.project_code || "")).toLowerCase().includes(q.toLowerCase())) &&
-      (!lifecycle || l.lifecycle_phase === lifecycle)
-  );
+  // Only the lifecycle (journey) filter stays client-side.
+  const filtered = leads.filter((l) => !lifecycle || l.lifecycle_phase === lifecycle);
 
   return (
     <div className="px-4 sm:px-6 lg:px-10 py-6">

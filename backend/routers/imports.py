@@ -25,7 +25,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 
-from core import db, get_current_user, now_iso, init_journey, ROLE_ADMIN, ROLE_SALES
+from core import db, get_current_user, now_iso, init_journey, has_permission, ROLE_CEO, ROLE_ADMIN, ROLE_SALES, ROLE_MANAGER
 from audit import log_audit
 from meta_import import parse_spreadsheet, map_meta_row
 
@@ -48,7 +48,7 @@ _REFRESHABLE = (
 @router.post("/imports/leads")
 async def import_leads(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     """Upload a Meta Lead-Ads spreadsheet and upsert its leads into the CRM."""
-    if user["role"] not in (ROLE_ADMIN, ROLE_SALES):
+    if not has_permission(user, "leads.import"):
         raise HTTPException(status_code=403, detail="Only admin/sales can import leads")
 
     content = await file.read()
@@ -141,6 +141,6 @@ async def import_leads(file: UploadFile = File(...), user: dict = Depends(get_cu
 @router.get("/imports/batches")
 async def list_import_batches(user: dict = Depends(get_current_user), limit: int = 20):
     """Recent import runs (newest first) for the Leads import-history panel."""
-    if user["role"] not in (ROLE_ADMIN, ROLE_SALES):
+    if not has_permission(user, "leads.import"):
         raise HTTPException(status_code=403, detail="Forbidden")
     return await db.import_batches.find({}, {"_id": 0}).sort("created_at", -1).to_list(min(int(limit or 20), 100))

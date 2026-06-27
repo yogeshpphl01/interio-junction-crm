@@ -207,6 +207,28 @@ async def dispatch_event(db, event: str, lead_id: Optional[str], extra: Optional
     await _log_outcome(db, event, recipients, ok, info, lead_id)
 
 
+async def send_password_reset_otp(to_email: str, code: str, full_name: Optional[str] = None) -> tuple[bool, str]:
+    """Deliver a password-reset OTP to the user's recovery email.
+
+    This is the pluggable delivery point for the forgot-password flow. Today it
+    sends over the existing SMTP setup; swapping in SMS later means adding an
+    alternative branch here (the rest of the flow is channel-agnostic). When SMTP
+    is not configured the code is logged to the server so the flow is still
+    testable in development."""
+    name = full_name or "there"
+    body = f"""
+      <p style="margin:0 0 14px 0;font-size:14px;line-height:1.6;">Hi {name}, we received a request to reset your Interio Junction CRM password.</p>
+      <p style="margin:0 0 8px 0;font-size:13px;color:#5C534D;">Your one-time reset code is:</p>
+      <div style="font-family:monospace;font-size:30px;letter-spacing:10px;font-weight:700;color:#2A2421;background:#F6F2EB;border:1px solid #E2DCD0;border-radius:8px;padding:16px 0;text-align:center;margin:0 0 14px 0;">{code}</div>
+      <p style="margin:0;font-size:13px;color:#5C534D;line-height:1.6;">It is valid for 10 minutes. If you didn't request this, you can safely ignore this email — your password will not change.</p>
+    """
+    html = _email_shell("Password reset code", body)
+    if not _is_configured():
+        logger.warning(f"[DEV OTP] SMTP not configured — reset code for {to_email}: {code}")
+        return False, "SMTP not configured (code logged to server)"
+    return await _send_email([to_email], "Interio Junction · Your password reset code", html)
+
+
 async def send_test_email(db, to: str) -> tuple[bool, str]:
     html = _email_shell(
         "Test email from Interio Junction",

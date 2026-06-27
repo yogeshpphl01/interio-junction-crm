@@ -2,8 +2,8 @@
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends
 from core import (
-    db, get_current_user, visible_lead_ids,
-    STAGES, STAGE_WIN_RATE, ROLE_ADMIN, ROLE_SALES,
+    db, get_current_user, visible_lead_ids, has_permission,
+    STAGES, STAGE_WIN_RATE, ROLE_CEO, ROLE_ADMIN, ROLE_SALES, ROLE_MANAGER,
     LEAD_LIFECYCLE_PHASES, derive_lifecycle_phase,
 )
 
@@ -13,14 +13,12 @@ router = APIRouter()
 @router.get("/analytics/command-center")
 async def command_center(user: dict = Depends(get_current_user)):
     filt: dict = {}
-    if user["role"] == ROLE_ADMIN:
+    if has_permission(user, "analytics.company"):
         scope = "company"
-    elif user["role"] == ROLE_SALES:
-        filt["assigned_to"] = user["id"]
-        scope = "self"
     else:
         ids = await visible_lead_ids(user)
-        filt["id"] = {"$in": list(ids or [])}
+        if ids is not None:
+            filt["id"] = {"$in": list(ids)}
         scope = "self"
 
     leads = await db.leads.find(filt, {"_id": 0}).to_list(5000)

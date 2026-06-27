@@ -12,7 +12,7 @@
 import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from core import (
-    db, get_current_user, ensure_project_visible,
+    db, get_current_user, ensure_project_visible, has_permission,
     RevisionInput, RevisionUpdate, run_workflow_notify_designer, now_iso,
     ROLE_ADMIN, ROLE_SALES, ROLE_DESIGNER, ROLE_SUPERVISOR,
 )
@@ -23,7 +23,7 @@ router = APIRouter()
 
 @router.post("/revisions")
 async def create_revision(payload: RevisionInput, user: dict = Depends(get_current_user)):
-    if user["role"] not in (ROLE_ADMIN, ROLE_SALES, ROLE_DESIGNER):
+    if not has_permission(user, "revisions.manage"):
         raise HTTPException(status_code=403, detail="Forbidden")
     proj = await db.projects.find_one({"id": payload.project_id}, {"_id": 0})
     if not proj:
@@ -65,7 +65,7 @@ async def update_revision(rev_id: str, payload: RevisionUpdate, user: dict = Dep
     rev = await db.design_revisions.find_one({"id": rev_id}, {"_id": 0})
     if not rev:
         raise HTTPException(status_code=404, detail="Not found")
-    if user["role"] == ROLE_SUPERVISOR:
+    if not has_permission(user, "revisions.manage"):
         raise HTTPException(status_code=403, detail="Forbidden")
     if user["role"] == ROLE_DESIGNER and rev.get("designer_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Not your revision")

@@ -10,14 +10,14 @@
 """
 from typing import Optional, Any
 from fastapi import APIRouter, Depends
-from core import db, require_roles, ROLE_ADMIN
+from core import db, require_permission, ROLE_CEO, ROLE_ADMIN
 
 router = APIRouter()
 
 
 @router.get("/audit")
 async def list_audit(
-    user: dict = Depends(require_roles(ROLE_ADMIN)),
+    user: dict = Depends(require_permission("audit.view")),
     action: Optional[str] = None,
     actor_id: Optional[str] = None,
     target_type: Optional[str] = None,
@@ -50,6 +50,6 @@ async def list_audit(
 
 
 @router.get("/audit/actions")
-async def list_audit_actions(user: dict = Depends(require_roles(ROLE_ADMIN))):
+async def list_audit_actions(user: dict = Depends(require_permission("audit.view"))):
     rows = await db.audit_log.distinct("action")
     return {"actions": sorted(rows)}

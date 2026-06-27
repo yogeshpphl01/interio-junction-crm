@@ -579,10 +579,24 @@ class PostgresDatabase:
             self.pool = None
 
     async def create_all(self) -> None:
-        """Create every table + declared index if they do not already exist."""
+        """
+        Create every table + index if missing, AND add any columns that were
+        declared after a table was first created. This makes schema changes
+        (new columns in pg_schema.py) roll out safely to EXISTING databases —
+        CREATE TABLE IF NOT EXISTS alone never adds new columns.
+        """
         async with self.pool.acquire() as conn:
             for name, table in SCHEMA.items():
                 await conn.execute(create_table_ddl(name, table))
+                # Lightweight migration: add columns declared since first create.
+                pk = table.get("pk")
+                for col, sql_type in table["columns"].items():
+                    if col == pk:
+                        continue  # primary key is set at table creation
+                    await conn.execute(f'ALTER TABLE {_q(name)} ADD COLUMN IF NOT EXISTS {_q(col)} {sql_type}')
+                await conn.execute(
+                    f"ALTER TABLE {_q(name)} ADD COLUMN IF NOT EXISTS {_q(EXTRA_COLUMN)} JSONB DEFAULT '{{}}'::jsonb"
+                )
                 for spec in table.get("indexes", []):
                     await conn.execute(
                         index_ddl_from_spec(name, normalize_index_keys(spec["cols"]), spec.get("unique", False))

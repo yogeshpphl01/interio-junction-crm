@@ -15,7 +15,11 @@ def _now() -> str:
 # Action vocabulary kept short + structured so the UI can filter cleanly.
 ACTIONS = {
     "auth.login", "auth.login_failed", "auth.logout",
-    "user.created", "user.updated",
+    "auth.password_reset_requested", "auth.password_reset_completed", "auth.password_reset_failed",
+    "user.created", "user.updated", "user.deactivated", "user.reactivated",
+    "user.deleted", "user.profile_updated",
+    "user.password_changed", "user.password_reset",
+    "role.created", "role.updated", "role.deleted",
     "lead.created", "lead.updated", "lead.stage_changed",
     "lead.closed_won", "lead.closed_lost", "lead.reopened", "lead.on_hold",
     "project.created",
