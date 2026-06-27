@@ -4,6 +4,11 @@
 /node_modules
 /.pnp
 .pnp.js
+# The Docker build uses `npm install --legacy-peer-deps` by design (it skips
+# CPU/OS-mismatched optional binaries), so a lockfile is intentionally not
+# committed — see frontend/Dockerfile.
+package-lock.json
+yarn.lock
 
 # testing
 /coverage
