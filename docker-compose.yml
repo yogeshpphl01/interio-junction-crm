@@ -50,6 +50,15 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@interiojunction.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-interio2026}
       DEFAULT_USER_PASSWORD: ${DEFAULT_USER_PASSWORD:-interio2026}
+      # Transactional email (notifications + password-reset OTP). Leave unset to
+      # run on the dev fallback (the OTP is written to the backend logs). Set
+      # these in .env to deliver real email — e.g. your interiojunction.com mailbox.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SENDER_EMAIL: ${SENDER_EMAIL:-}
+      SENDER_NAME: ${SENDER_NAME:-Interio Junction}
     expose:
       - "8000"
 
