@@ -16,13 +16,18 @@ export default function EditProfileModal({ onClose }) {
   const { user, refresh } = useAuth();
   const [fullName, setFullName] = useState(user?.full_name || "");
   const [phone, setPhone] = useState(user?.phone || "");
+  const [recoveryEmail, setRecoveryEmail] = useState(user?.recovery_email || "");
   const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
     try {
-      await api.patch("/auth/profile", { full_name: fullName, phone });
+      // Only send recovery_email when non-blank (an empty string fails server-side
+      // email validation; omitting it simply leaves the current value unchanged).
+      const payload = { full_name: fullName, phone };
+      if (recoveryEmail.trim()) payload.recovery_email = recoveryEmail.trim();
+      await api.patch("/auth/profile", payload);
       await refresh();           // update the name/phone shown in the shell
       toast.success("Profile updated");
       onClose();
@@ -49,6 +54,9 @@ export default function EditProfileModal({ onClose }) {
           </Field>
           <Field label="Phone / mobile">
             <input value={phone} onChange={(e) => setPhone(e.target.value)} className={cls} data-testid="profile-phone" placeholder="+91 …" />
+          </Field>
+          <Field label="Recovery email (for password resets)">
+            <input type="email" value={recoveryEmail} onChange={(e) => setRecoveryEmail(e.target.value)} className={cls} data-testid="profile-recovery-email" placeholder="you@gmail.com" />
           </Field>
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={onClose} className="px-3 py-1.5 text-sm text-ink-soft">Cancel</button>

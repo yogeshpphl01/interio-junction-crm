@@ -6,7 +6,9 @@
 */
 import { useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
+import { Toaster } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import ForgotPasswordModal from "@/components/ForgotPasswordModal";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -15,6 +17,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -69,7 +72,17 @@ export default function Login() {
               />
             </div>
             <div>
-              <label className="text-[11px] uppercase tracking-[0.12em] text-ink-soft font-semibold">Password</label>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-ink-soft font-semibold">Password</label>
+                <button
+                  type="button"
+                  onClick={() => setShowForgot(true)}
+                  data-testid="login-forgot-password-link"
+                  className="text-[11px] text-clay hover:text-clay-deep font-medium"
+                >
+                  Forgot password?
+                </button>
+              </div>
               <input
                 type="password"
                 value={password}
@@ -111,6 +124,9 @@ export default function Login() {
           </div>
         </div>
       </div>
+
+      <Toaster richColors position="top-right" />
+      {showForgot && <ForgotPasswordModal initialEmail={email} onClose={() => setShowForgot(false)} />}
     </div>
   );
 }

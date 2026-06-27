@@ -127,6 +127,19 @@ class ProfileUpdate(BaseModel):
     """Self-service personal-detail edit (any logged-in user). Logged to audit."""
     full_name: Optional[str] = None
     phone: Optional[str] = None
+    recovery_email: Optional[EmailStr] = None  # personal inbox for reset codes
+
+
+class ForgotPasswordInput(BaseModel):
+    """Step 1 of self-service reset — the account's login email."""
+    email: EmailStr
+
+
+class ResetPasswordInput(BaseModel):
+    """Step 2 — the emailed OTP plus the new password."""
+    email: EmailStr
+    otp: str
+    new_password: str
 
 
 class LeadCreate(BaseModel):

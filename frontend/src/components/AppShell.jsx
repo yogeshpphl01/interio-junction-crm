@@ -15,6 +15,7 @@ import { ROLE_LABEL, ROLE_COLOR } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import ChangePasswordModal from "@/components/ChangePasswordModal";
 import EditProfileModal from "@/components/EditProfileModal";
+import RecoveryEmailModal from "@/components/RecoveryEmailModal";
 import {
   LayoutDashboard, Columns3, Users, Ruler, BarChart3, Settings, LogOut,
   Sparkles, Workflow, Menu, X, ScrollText, Bell, KeyRound, Pencil,
@@ -50,6 +51,7 @@ export default function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showChangePwd, setShowChangePwd] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [recoveryDismissed, setRecoveryDismissed] = useState(false);
 
   if (!user) return null;
   const visible = NAV.filter((n) => canSee(n, user));
@@ -185,6 +187,10 @@ export default function AppShell() {
 
       {showChangePwd && <ChangePasswordModal onClose={() => setShowChangePwd(false)} />}
       {showEditProfile && <EditProfileModal onClose={() => setShowEditProfile(false)} />}
+      {/* First-login capture: prompt for a recovery email until one is on file. */}
+      {user && !user.recovery_email && !recoveryDismissed && (
+        <RecoveryEmailModal onClose={() => setRecoveryDismissed(true)} onSkip={() => setRecoveryDismissed(true)} />
+      )}
     </div>
   );
 }

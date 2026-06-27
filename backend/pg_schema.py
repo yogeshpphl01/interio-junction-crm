@@ -73,6 +73,7 @@ SCHEMA: dict[str, dict] = {
             "full_name": "TEXT",
             "role": "TEXT",
             "phone": "TEXT",
+            "recovery_email": "TEXT",            # personal inbox for password-reset OTPs
             "is_active": "BOOLEAN",
             "must_change_password": "BOOLEAN",  # set after admin generates a password
             "created_by": "TEXT",
@@ -81,6 +82,35 @@ SCHEMA: dict[str, dict] = {
         "json": [],
         "indexes": [
             {"cols": [("email", 1)], "unique": True},
+        ],
+    },
+
+    # <table name="password_resets">
+    #   <purpose>
+    #     Short-lived one-time-password (OTP) records for the self-service
+    #     "forgot password" flow. The app generates a 4-digit code, stores only its
+    #     bcrypt hash here with an expiry + attempt counter, and delivers the plain
+    #     code to the user's recovery_email (pluggable: email now, SMS later).
+    #     "Latest row wins" — only the most recent, unconsumed row for a user is
+    #     ever honoured, so older codes are automatically void.
+    #   </purpose>
+    # </table>
+    "password_resets": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "user_id": "TEXT",
+            "otp_hash": "TEXT",       # bcrypt hash of the code (never the plain code)
+            "expires_at": "TEXT",
+            "attempts": "INTEGER",    # wrong tries so far (locks at OTP_MAX_ATTEMPTS)
+            "sent_at": "TEXT",        # last delivery time (drives the resend cooldown)
+            "consumed": "BOOLEAN",    # used / invalidated
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("user_id", 1)], "unique": False},
+            {"cols": [("created_at", -1)], "unique": False},
         ],
     },
 
