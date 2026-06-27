@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 
 from core import (
-    db, get_current_user, ensure_project_visible, ensure_lead_visible,
+    db, get_current_user, ensure_project_visible, ensure_lead_visible, has_permission,
     DOC_TYPES, now_iso,
     ROLE_DESIGNER, ROLE_SUPERVISOR,
 )
@@ -42,6 +42,8 @@ async def upload_document(
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
     await ensure_project_visible(user, project_id)
+    if not has_permission(user, "documents.upload"):
+        raise HTTPException(status_code=403, detail="You don't have permission to upload documents")
     if user["role"] == ROLE_DESIGNER and type not in ("2D CAD", "3D Render", "Quotation PDF", "Other"):
         raise HTTPException(status_code=403, detail="Designers can upload only design files")
     if user["role"] == ROLE_SUPERVISOR and type not in ("Site Measurement Sheet", "Site Photo", "Other"):

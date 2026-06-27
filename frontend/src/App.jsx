@@ -44,7 +44,7 @@ export default function App() {
             <Route
               path="/scoring"
               element={
-                <ProtectedRoute roles={["ceo", "admin", "manager", "sales"]}>
+                <ProtectedRoute roles={["ceo", "admin", "manager", "sales"]} perm="scoring.manage">
                   <LeadScoring />
                 </ProtectedRoute>
               }
@@ -52,7 +52,7 @@ export default function App() {
             <Route
               path="/automations"
               element={
-                <ProtectedRoute roles={["ceo", "admin", "manager", "sales"]}>
+                <ProtectedRoute roles={["ceo", "admin", "manager", "sales"]} perm="automations.manage">
                   <Automations />
                 </ProtectedRoute>
               }
@@ -60,7 +60,7 @@ export default function App() {
             <Route
               path="/analytics"
               element={
-                <ProtectedRoute roles={["ceo", "admin"]}>
+                <ProtectedRoute roles={["ceo", "admin"]} perm="analytics.company">
                   <CommandCenter />
                 </ProtectedRoute>
               }
@@ -68,7 +68,7 @@ export default function App() {
             <Route
               path="/settings"
               element={
-                <ProtectedRoute roles={["ceo", "admin"]}>
+                <ProtectedRoute roles={["ceo", "admin"]} perm={["users.manage", "roles.manage"]}>
                   <Settings />
                 </ProtectedRoute>
               }
@@ -76,7 +76,7 @@ export default function App() {
             <Route
               path="/audit"
               element={
-                <ProtectedRoute roles={["ceo", "admin"]}>
+                <ProtectedRoute roles={["ceo", "admin"]} perm="audit.view">
                   <Audit />
                 </ProtectedRoute>
               }
@@ -84,7 +84,7 @@ export default function App() {
             <Route
               path="/notifications"
               element={
-                <ProtectedRoute roles={["ceo", "admin"]}>
+                <ProtectedRoute roles={["ceo", "admin"]} perm="notifications.manage">
                   <NotificationSettings />
                 </ProtectedRoute>
               }

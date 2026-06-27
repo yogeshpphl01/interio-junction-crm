@@ -12,6 +12,7 @@
 """
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from core import db, LoginInput, ChangePasswordInput, ProfileUpdate, get_current_user
+from permissions import permissions_for, role_label, role_color
 from auth_utils import (
     verify_password, hash_password, create_access_token, create_refresh_token,
     set_auth_cookies, clear_auth_cookies, decode_token,
@@ -36,6 +37,9 @@ async def login(input: LoginInput, response: Response, request: Request):
     set_auth_cookies(response, access, refresh)
     user.pop("_id", None)
     user.pop("password_hash", None)
+    user["permissions"] = permissions_for(user["role"])
+    user["role_label"] = role_label(user["role"])
+    user["role_color"] = role_color(user["role"])
     await log_audit(db, user, "auth.login", "user", user["id"], user["full_name"], None, request)
     return {"user": user, "access_token": access, "refresh_token": refresh}
 

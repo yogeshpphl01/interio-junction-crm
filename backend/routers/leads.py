@@ -3,7 +3,7 @@ import uuid
 from typing import Optional, Any
 from fastapi import APIRouter, HTTPException, Depends, Request
 from core import (
-    db, get_current_user, ensure_lead_visible, enrich_leads, visible_lead_ids,
+    db, get_current_user, ensure_lead_visible, enrich_leads, visible_lead_ids, has_permission,
     next_project_code, evaluate_gate, run_workflow_auto_assign_supervisor,
     LeadCreate, LeadUpdate, StageMoveInput, CloseLeadInput, now_iso,
     STAGES, LEAD_TYPES, BHK_TYPES, KITCHEN_LAYOUTS, LEAD_SOURCES,
@@ -25,13 +25,10 @@ async def list_leads(
     q: Optional[str] = None,
 ):
     filt: dict = {}
-    if user["role"] in (ROLE_CEO, ROLE_ADMIN, ROLE_MANAGER):
-        pass
-    elif user["role"] == ROLE_SALES:
-        filt["assigned_to"] = user["id"]
-    else:
-        ids = await visible_lead_ids(user)
-        filt["id"] = {"$in": list(ids or [])}
+    # Visibility is permission-driven (leads.view_all => all; otherwise own/project).
+    ids = await visible_lead_ids(user)
+    if ids is not None:
+        filt["id"] = {"$in": list(ids)}
     if stage is not None:
         filt["stage"] = stage
     if status:
@@ -52,7 +49,7 @@ async def list_leads(
 
 @router.post("/leads")
 async def create_lead(payload: LeadCreate, user: dict = Depends(get_current_user)):
-    if user["role"] not in (ROLE_CEO, ROLE_ADMIN, ROLE_SALES, ROLE_MANAGER):
+    if not has_permission(user, "leads.edit"):
         raise HTTPException(status_code=403, detail="Only admin/sales can create leads")
     if payload.lead_type not in LEAD_TYPES:
         raise HTTPException(status_code=400, detail="Invalid lead_type")
@@ -141,7 +138,7 @@ async def update_lead(lead_id: str, payload: LeadUpdate, user: dict = Depends(ge
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     await ensure_lead_visible(user, lead)
-    if user["role"] not in (ROLE_CEO, ROLE_ADMIN, ROLE_SALES, ROLE_MANAGER):
+    if not has_permission(user, "leads.edit"):
         raise HTTPException(status_code=403, detail="Only admin/sales can edit leads")
     update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     update["updated_at"] = now_iso()
@@ -158,7 +155,7 @@ async def close_lead(lead_id: str, payload: CloseLeadInput, request: Request, us
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     await ensure_lead_visible(user, lead)
-    if user["role"] not in (ROLE_CEO, ROLE_ADMIN, ROLE_SALES, ROLE_MANAGER):
+    if not has_permission(user, "leads.edit"):
         raise HTTPException(status_code=403, detail="Only admin/sales can close leads")
     if payload.status == "Lost" and not (payload.reason and payload.reason.strip()):
         raise HTTPException(status_code=400, detail="Lost reason is required")
@@ -241,7 +238,7 @@ async def move_lead(lead_id: str, payload: StageMoveInput, user: dict = Depends(
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if user["role"] not in (ROLE_CEO, ROLE_ADMIN, ROLE_SALES, ROLE_MANAGER):
+    if not has_permission(user, "leads.edit"):
         raise HTTPException(status_code=403, detail="Only admin/sales can move leads")
     await ensure_lead_visible(user, lead)
     to = int(payload.to_stage)

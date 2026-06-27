@@ -21,7 +21,7 @@ import uuid
 import secrets
 from fastapi import APIRouter, HTTPException, Depends
 from core import (
-    db, get_current_user, require_roles, UserCreate,
+    db, get_current_user, require_permission, UserCreate,
     ROLE_ADMIN, ROLE_CEO, BUILTIN_ROLES, now_iso,
 )
 from auth_utils import hash_password
@@ -50,7 +50,7 @@ async def list_users(user: dict = Depends(get_current_user)):
 
 
 @router.post("/users")
-async def create_user(payload: UserCreate, admin: dict = Depends(require_roles(ROLE_CEO, ROLE_ADMIN))):
+async def create_user(payload: UserCreate, admin: dict = Depends(require_permission("users.manage"))):
     """Create an account. If no password is supplied, a strong one is generated
     and returned ONCE so the admin can hand it over."""
     email = payload.email.lower().strip()
@@ -86,7 +86,7 @@ async def create_user(payload: UserCreate, admin: dict = Depends(require_roles(R
 
 
 @router.post("/users/{user_id}/reset-password")
-async def reset_password(user_id: str, admin: dict = Depends(require_roles(ROLE_CEO, ROLE_ADMIN))):
+async def reset_password(user_id: str, admin: dict = Depends(require_permission("users.manage"))):
     """Generate a fresh one-time password; returned once. A CEO's password can
     only be reset by a CEO."""
     target = await db.users.find_one({"id": user_id})
@@ -104,7 +104,7 @@ async def reset_password(user_id: str, admin: dict = Depends(require_roles(ROLE_
 
 
 @router.post("/users/{user_id}/deactivate")
-async def deactivate_user(user_id: str, admin: dict = Depends(require_roles(ROLE_CEO, ROLE_ADMIN))):
+async def deactivate_user(user_id: str, admin: dict = Depends(require_permission("users.manage"))):
     """Disable login. The CEO account can never be deactivated; nor can you deactivate yourself."""
     target = await db.users.find_one({"id": user_id})
     if not target:
@@ -119,7 +119,7 @@ async def deactivate_user(user_id: str, admin: dict = Depends(require_roles(ROLE
 
 
 @router.post("/users/{user_id}/activate")
-async def activate_user(user_id: str, admin: dict = Depends(require_roles(ROLE_CEO, ROLE_ADMIN))):
+async def activate_user(user_id: str, admin: dict = Depends(require_permission("users.manage"))):
     target = await db.users.find_one({"id": user_id})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
@@ -129,7 +129,7 @@ async def activate_user(user_id: str, admin: dict = Depends(require_roles(ROLE_C
 
 
 @router.delete("/users/{user_id}")
-async def delete_user(user_id: str, ceo: dict = Depends(require_roles(ROLE_CEO))):
+async def delete_user(user_id: str, ceo: dict = Depends(require_permission("users.delete"))):
     """Permanently delete an account (CEO only). The CEO account itself can never
     be deleted. The user's past actions remain in the immutable audit log."""
     target = await db.users.find_one({"id": user_id})
@@ -146,7 +146,7 @@ async def delete_user(user_id: str, ceo: dict = Depends(require_roles(ROLE_CEO))
 
 
 @router.patch("/users/{user_id}")
-async def update_user(user_id: str, body: dict, admin: dict = Depends(require_roles(ROLE_CEO, ROLE_ADMIN))):
+async def update_user(user_id: str, body: dict, admin: dict = Depends(require_permission("users.manage"))):
     """Admin edit of another account's name / role / phone (and password)."""
     target = await db.users.find_one({"id": user_id})
     if not target:

@@ -14,7 +14,7 @@ import json
 from typing import Optional
 from fastapi import APIRouter, Depends
 from core import (
-    db, get_current_user, require_roles, visible_lead_ids,
+    db, get_current_user, require_permission, visible_lead_ids,
     WeightsInput, ROLE_CEO, ROLE_ADMIN, ROLE_SALES,
 )
 from scoring import compute_score, DEFAULT_WEIGHTS
@@ -76,7 +76,7 @@ async def list_scoring(user: dict = Depends(get_current_user), weights: Optional
 
 
 @router.post("/scoring/weights")
-async def save_weights(payload: WeightsInput, user: dict = Depends(require_roles(ROLE_CEO, ROLE_ADMIN))):
+async def save_weights(payload: WeightsInput, user: dict = Depends(require_permission("scoring.manage"))):
     w = payload.model_dump()
     await db.settings.update_one({"key": "score_weights"}, {"$set": {"value": w}}, upsert=True)
     await log_audit(db, user, "scoring.weights_saved", "settings", "score_weights", "Scoring weights", w)

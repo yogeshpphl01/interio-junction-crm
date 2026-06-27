@@ -27,6 +27,7 @@ from auth_utils import decode_token, extract_token
 from scoring import compute_score, DEFAULT_WEIGHTS
 from database import PostgresDatabase
 from pg_schema import LIFECYCLE_PHASES
+from permissions import has_permission, require_permission, permissions_for, role_label, role_color
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +263,9 @@ async def get_current_user(request: Request) -> dict:
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
     if not user or not user.get("is_active", True):
         raise HTTPException(status_code=401, detail="User not found or inactive")
+    user["permissions"] = permissions_for(user["role"])  # for permission-aware UI
+    user["role_label"] = role_label(user["role"])         # for badges (incl. custom roles)
+    user["role_color"] = role_color(user["role"])
     return user
 
 
@@ -285,12 +289,13 @@ async def project_ids_for_supervisor(user_id: str) -> list[str]:
 
 
 async def visible_lead_ids(user: dict) -> Optional[set[str]]:
-    """Return set of lead ids the user can see, or None for ceo/admin/manager (all)."""
-    if user["role"] in FULL_VISIBILITY_ROLES:
+    """
+    Lead ids the user can see, or None (= all) when they hold 'leads.view_all'.
+    Designer/Supervisor keep their special project-linked visibility; everyone
+    else (Sales + any custom category without view_all) sees only their own.
+    """
+    if has_permission(user, "leads.view_all"):
         return None
-    if user["role"] == ROLE_SALES:
-        ids = await db.leads.find({"assigned_to": user["id"]}, {"id": 1, "_id": 0}).to_list(10000)
-        return {l["id"] for l in ids}
     if user["role"] == ROLE_DESIGNER:
         pids = await project_ids_for_designer(user["id"])
         if not pids:
@@ -303,7 +308,8 @@ async def visible_lead_ids(user: dict) -> Optional[set[str]]:
             return set()
         lead_docs = await db.leads.find({"project_id": {"$in": pids}}, {"id": 1, "_id": 0}).to_list(10000)
         return {l["id"] for l in lead_docs}
-    return set()
+    ids = await db.leads.find({"assigned_to": user["id"]}, {"id": 1, "_id": 0}).to_list(10000)
+    return {l["id"] for l in ids}
 
 
 async def ensure_lead_visible(user: dict, lead: dict) -> None:

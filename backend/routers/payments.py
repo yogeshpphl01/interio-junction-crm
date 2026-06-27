@@ -10,14 +10,14 @@
 """
 import uuid
 from fastapi import APIRouter, Depends
-from core import db, require_roles, PaymentInput, PaymentUpdate, now_iso, ROLE_ADMIN, ROLE_SALES
+from core import db, require_permission, PaymentInput, PaymentUpdate, now_iso
 from audit import log_audit
 
 router = APIRouter()
 
 
 @router.post("/payments")
-async def create_payment(payload: PaymentInput, user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SALES))):
+async def create_payment(payload: PaymentInput, user: dict = Depends(require_permission("payments.manage"))):
     doc = {
         "id": str(uuid.uuid4()),
         **payload.model_dump(),
@@ -32,7 +32,7 @@ async def create_payment(payload: PaymentInput, user: dict = Depends(require_rol
 
 
 @router.patch("/payments/{pid}")
-async def update_payment(pid: str, payload: PaymentUpdate, user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SALES))):
+async def update_payment(pid: str, payload: PaymentUpdate, user: dict = Depends(require_permission("payments.manage"))):
     update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if update.get("status") == "Paid" and not update.get("paid_date"):
         update["paid_date"] = now_iso()

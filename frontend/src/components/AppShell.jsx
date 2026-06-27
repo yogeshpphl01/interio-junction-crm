@@ -1,8 +1,11 @@
 /*
   <component name="AppShell" layer="frontend-layout">
-    <purpose>Authenticated chrome: left sidebar nav (role-filtered via the NAV
-    list), top header with page title + role badge, and an <Outlet/> for the
-    active page. Collapsible on mobile.</purpose>
+    <purpose>Authenticated chrome: left sidebar nav, top header with page title +
+    role badge, and an <Outlet/> for the active page. Collapsible on mobile.</purpose>
+    <nav-visibility>Each NAV item is shown when the user's built-in role is listed
+    (`roles`) OR the user holds the item's permission (`perm`, any-of) — so custom
+    account categories (Module 7) see exactly the sections their toggles grant.
+    `always` items (Command Center, Pipeline) are visible to every signed-in user.</nav-visibility>
   </component>
 */
 import { useState } from "react";
@@ -18,17 +21,27 @@ import {
 } from "lucide-react";
 
 const NAV = [
-  { to: "/", label: "Command Center", icon: LayoutDashboard, roles: ["ceo", "admin", "manager", "sales", "designer", "supervisor"] },
-  { to: "/pipeline", label: "Pipeline", icon: Columns3, roles: ["ceo", "admin", "manager", "sales", "designer", "supervisor"] },
-  { to: "/leads", label: "Leads", icon: Users, roles: ["ceo", "admin", "manager", "sales"] },
-  { to: "/site-visits", label: "Site Visits", icon: Ruler, roles: ["ceo", "admin", "manager", "sales", "supervisor"] },
-  { to: "/scoring", label: "Lead Scoring", icon: Sparkles, roles: ["ceo", "admin", "manager", "sales"] },
-  { to: "/automations", label: "Automations", icon: Workflow, roles: ["ceo", "admin", "manager", "sales"] },
-  { to: "/notifications", label: "Notifications", icon: Bell, roles: ["ceo", "admin"] },
-  { to: "/analytics", label: "Analytics", icon: BarChart3, roles: ["ceo", "admin"] },
-  { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["ceo", "admin"] },
-  { to: "/settings", label: "Settings", icon: Settings, roles: ["ceo", "admin"] },
+  { to: "/", label: "Command Center", icon: LayoutDashboard, always: true },
+  { to: "/pipeline", label: "Pipeline", icon: Columns3, always: true },
+  { to: "/leads", label: "Leads", icon: Users, roles: ["ceo", "admin", "manager", "sales"], perm: "leads.view_all" },
+  { to: "/site-visits", label: "Site Visits", icon: Ruler, roles: ["ceo", "admin", "manager", "sales", "supervisor"], perm: "measurements.manage" },
+  { to: "/scoring", label: "Lead Scoring", icon: Sparkles, roles: ["ceo", "admin", "manager", "sales"], perm: "scoring.manage" },
+  { to: "/automations", label: "Automations", icon: Workflow, roles: ["ceo", "admin", "manager", "sales"], perm: "automations.manage" },
+  { to: "/notifications", label: "Notifications", icon: Bell, roles: ["ceo", "admin"], perm: "notifications.manage" },
+  { to: "/analytics", label: "Analytics", icon: BarChart3, roles: ["ceo", "admin"], perm: "analytics.company" },
+  { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["ceo", "admin"], perm: "audit.view" },
+  { to: "/settings", label: "Settings", icon: Settings, roles: ["ceo", "admin"], perm: ["users.manage", "roles.manage"] },
 ];
+
+// Visible when an `always` item, the user's built-in role is listed, or the user
+// holds one of the item's permissions (the Module 7 custom-category path).
+function canSee(item, user) {
+  if (item.always) return true;
+  if (item.roles && item.roles.includes(user.role)) return true;
+  const held = user.permissions || [];
+  const wanted = item.perm ? (Array.isArray(item.perm) ? item.perm : [item.perm]) : [];
+  return wanted.some((p) => held.includes(p));
+}
 
 export default function AppShell() {
   const { user, logout } = useAuth();
@@ -39,7 +52,10 @@ export default function AppShell() {
   const [showEditProfile, setShowEditProfile] = useState(false);
 
   if (!user) return null;
-  const visible = NAV.filter((n) => n.roles.includes(user.role));
+  const visible = NAV.filter((n) => canSee(n, user));
+  // Prefer server-supplied label/colour (covers custom categories), fall back to the built-in map.
+  const roleLabel = user.role_label || ROLE_LABEL[user.role] || user.role;
+  const roleColor = user.role_color || ROLE_COLOR[user.role] || "#8A5A3B";
 
   const onLogout = async () => {
     await logout();
@@ -98,14 +114,14 @@ export default function AppShell() {
           <div className="px-3 py-2 flex items-center gap-3">
             <div
               className="w-9 h-9 rounded-md flex items-center justify-center text-white text-xs font-semibold"
-              style={{ background: ROLE_COLOR[user.role] || "#8A5A3B" }}
+              style={{ background: roleColor }}
               data-testid="user-avatar"
             >
               {initials(user.full_name || user.email)}
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm text-ink truncate">{user.full_name}</div>
-              <div className="text-[11px] text-ink-muted truncate">{ROLE_LABEL[user.role]}</div>
+              <div className="text-[11px] text-ink-muted truncate">{roleLabel}</div>
             </div>
             <button
               onClick={() => setShowEditProfile(true)}
@@ -157,8 +173,8 @@ export default function AppShell() {
               className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-bone-subtle border border-edge"
               data-testid="role-badge"
             >
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: ROLE_COLOR[user.role] }} />
-              <span className="text-xs font-medium text-ink">{ROLE_LABEL[user.role]}</span>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: roleColor }} />
+              <span className="text-xs font-medium text-ink">{roleLabel}</span>
             </div>
           </div>
         </header>

@@ -13,6 +13,7 @@ from starlette.middleware.cors import CORSMiddleware
 from core import db, DEFAULT_AUTOMATIONS
 from storage import init_storage
 from seed_data import seed_users, seed_leads
+from permissions import seed_roles
 from routers import ALL_ROUTERS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -55,6 +56,9 @@ async def on_startup():
         init_storage()
     except Exception as e:
         logger.error(f"Storage init error: {e}")
+
+    # <rbac>Seed built-in roles + load the permission cache (Module 7).</rbac>
+    await seed_roles(db)
 
     email_to_id = await seed_users(db)
     await seed_leads(db, email_to_id)
