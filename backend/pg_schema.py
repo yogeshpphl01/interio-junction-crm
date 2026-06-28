@@ -345,6 +345,36 @@ SCHEMA: dict[str, dict] = {
         ],
     },
 
+    # <table name="fixtures">
+    #   <purpose>
+    #     The "Fixture" section captured at Booking (stage 4) — the hardware /
+    #     lighting / appliance selections committed for a project. Linked to the
+    #     project (and its lead) so it travels with the job into production.
+    #   </purpose>
+    # </table>
+    "fixtures": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "project_id": "TEXT",
+            "lead_id": "TEXT",
+            "name": "TEXT",
+            "category": "TEXT",
+            "brand": "TEXT",
+            "model": "TEXT",
+            "quantity": "INTEGER",
+            "unit": "TEXT",
+            "notes": "TEXT",
+            "created_by": "TEXT",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("lead_id", 1)], "unique": False},
+        ],
+    },
+
     # <table name="settings"><purpose>Key/value app config (score weights, notifications).</purpose></table>
     "settings": {
         "pk": "key",

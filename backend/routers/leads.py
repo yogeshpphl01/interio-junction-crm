@@ -99,12 +99,13 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
     await ensure_lead_visible(user, lead)
     enriched = (await enrich_leads([lead]))[0]
     project = enriched.get("project")
-    measurements, revisions, payments, documents = [], [], [], []
+    measurements, revisions, payments, documents, fixtures = [], [], [], [], []
     if project:
         measurements = await db.site_measurements.find({"project_id": project["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
         revisions = await db.design_revisions.find({"project_id": project["id"]}, {"_id": 0}).sort("revision_number", 1).to_list(500)
         payments = await db.payments.find({"project_id": project["id"]}, {"_id": 0}).sort("due_date", 1).to_list(500)
         documents = await db.documents.find({"project_id": project["id"], "is_deleted": {"$ne": True}}, {"_id": 0}).sort("created_at", -1).to_list(500)
+        fixtures = await db.fixtures.find({"project_id": project["id"]}, {"_id": 0}).sort("created_at", 1).to_list(500)
     activities = await db.activities.find({"lead_id": lead_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
     stage_history = await db.stage_history.find({"lead_id": lead_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
     actor_ids = {a.get("actor_id") for a in activities} | {h.get("changed_by") for h in stage_history}
@@ -127,7 +128,7 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
         m["supervisor"] = actors.get(m.get("supervisor_id"))
     return {
         **enriched, "measurements": measurements, "revisions": revisions,
-        "payments": payments, "documents": documents,
+        "payments": payments, "documents": documents, "fixtures": fixtures,
         "activities": activities, "stage_history": stage_history,
     }
 

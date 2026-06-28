@@ -8,7 +8,7 @@ import { toast, Toaster } from "sonner";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Upload, Download,
   Plus, Pencil, Phone, Mail, MapPin, Calendar, Ruler, Layers, IndianRupee,
-  Trophy, XCircle, PauseCircle, RotateCcw, Footprints,
+  Trophy, XCircle, PauseCircle, RotateCcw, Footprints, Wrench, Tag, Trash2, Factory,
 } from "lucide-react";
 import CloseLeadModal from "@/components/CloseLeadModal";
 
@@ -41,6 +41,10 @@ export default function LeadDetail() {
   const isAdminOrSales = user.role === "admin" || user.role === "sales";
   const isDesigner = user.role === "designer";
   const isSupervisor = user.role === "supervisor";
+  // Permission-driven (Module 7) gates for the new stage sections — covers CEO,
+  // managers and custom categories, not just admin/sales.
+  const canEditLeads = (user.permissions || []).includes("leads.edit");
+  const canUploadDocs = (user.permissions || []).includes("documents.upload");
 
   return (
     <div className="px-4 sm:px-6 lg:px-10 py-6 max-w-7xl">
@@ -193,6 +197,65 @@ export default function LeadDetail() {
             )}
           </Card>
 
+          {/* Fixtures — captured at Booking (stage 4) */}
+          {data.project && (
+            <Card
+              title="Fixtures"
+              icon={Wrench}
+              action={canEditLeads ? (
+                <button
+                  data-testid="add-fixture-btn"
+                  onClick={() => setAdding("fixture")}
+                  className="inline-flex items-center gap-1 text-xs text-clay hover:text-clay-deep"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add
+                </button>
+              ) : null}
+            >
+              {(data.fixtures || []).length === 0 ? (
+                <Empty text="No fixtures captured yet." />
+              ) : (
+                <div className="space-y-2">
+                  {data.fixtures.map((f) => (
+                    <FixtureRow key={f.id} f={f} onChange={load} canEdit={canEditLeads} />
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Design files (stage 6) — unstructured CAD / renders / PDFs */}
+          {data.project && (
+            <Card title="Design Files" icon={Layers}>
+              <DocList docs={(data.documents || []).filter((d) => DESIGN_TYPES.includes(d.type))} empty="No design files yet." />
+              {canUploadDocs && (
+                <div className="flex flex-wrap gap-x-4">
+                  <UploadButton project={data.project} type="2D CAD" onUploaded={load} />
+                  <UploadButton project={data.project} type="3D Render" onUploaded={load} />
+                  <UploadButton project={data.project} type="Design File" onUploaded={load} />
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Production design (stage 7) — Cutlist / BOQ / BOM + label generator */}
+          {data.project && (
+            <Card title="Production Design" icon={Factory}>
+              <DocList
+                docs={(data.documents || []).filter((d) => PRODUCTION_TYPES.includes(d.type))}
+                empty="No production files (Cutlist / BOQ / BOM) yet."
+              />
+              {canUploadDocs && (
+                <div className="flex flex-wrap gap-x-4">
+                  <UploadButton project={data.project} type="Cutlist" onUploaded={load} />
+                  <UploadButton project={data.project} type="BOQ" onUploaded={load} />
+                  <UploadButton project={data.project} type="BOM" onUploaded={load} />
+                </div>
+              )}
+              <LabelGeneratorPanel cutlists={(data.documents || []).filter((d) => d.type === "Cutlist")} />
+            </Card>
+          )}
+
           {/* Documents */}
           <Card title="Documents" icon={ImageIcon}>
             {data.documents.length === 0 ? (
@@ -247,6 +310,16 @@ export default function LeadDetail() {
       )}
       {adding === "revision" && (
         <RevisionModal
+          projectId={data.project?.id}
+          onClose={() => setAdding("")}
+          onSaved={() => {
+            setAdding("");
+            load();
+          }}
+        />
+      )}
+      {adding === "fixture" && (
+        <FixtureModal
           projectId={data.project?.id}
           onClose={() => setAdding("")}
           onSaved={() => {
@@ -575,6 +648,146 @@ function UploadButton({ project, type, linkedMeasurementId, linkedRevisionId, on
     </label>
   );
 }
+
+// Document type groupings for the Design (6) and Production Design (7) sections.
+const DESIGN_TYPES = ["2D CAD", "3D Render", "Design File"];
+const PRODUCTION_TYPES = ["Cutlist", "BOQ", "BOM"];
+const FIXTURE_CATEGORIES = ["Hardware", "Lighting", "Appliance", "Plumbing", "Furniture", "Surface / Finish", "Other"];
+
+function DocList({ docs, empty }) {
+  if (!docs || docs.length === 0) return <Empty text={empty} />;
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      {docs.map((d) => <DocumentRow key={d.id} doc={d} />)}
+    </div>
+  );
+}
+
+function FixtureRow({ f, onChange, canEdit }) {
+  const del = async () => {
+    if (!window.confirm(`Remove fixture "${f.name}"?`)) return;
+    try {
+      await api.delete(`/fixtures/${f.id}`);
+      toast.success("Fixture removed");
+      onChange();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed");
+    }
+  };
+  const meta = [f.category, f.brand, f.model].filter(Boolean).join(" · ");
+  return (
+    <div className="border border-edge rounded-md px-3 py-2 flex items-start justify-between gap-2" data-testid={`fixture-row-${f.id}`}>
+      <div className="min-w-0">
+        <div className="text-sm text-ink">
+          {f.name}
+          {f.quantity ? <span className="text-ink-muted"> × {f.quantity}{f.unit ? ` ${f.unit}` : ""}</span> : null}
+        </div>
+        <div className="text-[11px] text-ink-muted">{meta || "—"}</div>
+        {f.notes && <div className="text-[11px] text-ink-soft mt-0.5">{f.notes}</div>}
+      </div>
+      {canEdit && (
+        <button onClick={del} title="Remove" data-testid={`fixture-del-${f.id}`} className="p-1 text-ink-muted hover:text-clay-deep shrink-0">
+          <Trash2 className="w-4 h-4" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* <component name="LabelGeneratorPanel">
+     Placeholder for the user's factory label-generator (Cutlist -> printable part
+     labels for inventory + project tracking). Wired up when they share the code.
+   </component> */
+function LabelGeneratorPanel({ cutlists }) {
+  const n = cutlists.length;
+  return (
+    <div className="mt-4 pt-3 border-t border-edge">
+      <div className="flex items-center gap-2 mb-1.5">
+        <Tag className="w-4 h-4 text-clay" />
+        <span className="text-sm font-medium text-ink">Label Generator</span>
+        <span className="text-[10px] uppercase tracking-wide text-ink-muted bg-bone-subtle border border-edge px-1.5 py-0.5 rounded">Connect tool</span>
+      </div>
+      <p className="text-xs text-ink-soft leading-relaxed">
+        Turns a Cutlist into printable part labels for factory inventory &amp; project-progress tracking.
+        Your label-generator solution plugs in here.{" "}
+        {n > 0 ? `${n} cutlist file${n === 1 ? "" : "s"} ready.` : "Upload a Cutlist above to begin."}
+      </p>
+      <button
+        disabled
+        data-testid="label-generator-stub"
+        className="mt-2 inline-flex items-center gap-1 text-xs text-ink-muted bg-bone-subtle border border-edge rounded px-2.5 py-1.5 cursor-not-allowed"
+        title="Your label generator will be wired up here"
+      >
+        <Tag className="w-3.5 h-3.5" /> Generate labels from Cutlist
+      </button>
+    </div>
+  );
+}
+
+function FixtureModal({ projectId, onClose, onSaved }) {
+  const [form, setForm] = useState({ name: "", category: "Hardware", brand: "", model: "", quantity: 1, unit: "", notes: "" });
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.name.trim()) { toast.error("Fixture name is required"); return; }
+    setBusy(true);
+    try {
+      await api.post("/fixtures", { project_id: projectId, ...form, quantity: Number(form.quantity) || 1 });
+      toast.success("Fixture added");
+      onSaved();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="bg-bone-paper border border-edge rounded-md w-full max-w-md" data-testid="fixture-modal">
+        <div className="px-5 py-4 border-b border-edge flex justify-between">
+          <h3 className="font-serif text-xl text-ink">Add fixture</h3>
+          <button onClick={onClose} className="text-2xl text-ink-soft leading-none">×</button>
+        </div>
+        <form onSubmit={submit} className="p-5 space-y-3">
+          <FxField label="Name"><input data-testid="fixture-name" required value={form.name} onChange={set("name")} className={fxCls} placeholder="e.g. Cabinet handle, Pendant light" /></FxField>
+          <div className="grid grid-cols-2 gap-3">
+            <FxField label="Category">
+              <select value={form.category} onChange={set("category")} className={fxCls} data-testid="fixture-category">
+                {FIXTURE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </FxField>
+            <FxField label="Quantity">
+              <div className="flex gap-2">
+                <input type="number" min="1" value={form.quantity} onChange={set("quantity")} className={fxCls} data-testid="fixture-qty" />
+                <input value={form.unit} onChange={set("unit")} className={fxCls} placeholder="unit" />
+              </div>
+            </FxField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FxField label="Brand"><input value={form.brand} onChange={set("brand")} className={fxCls} /></FxField>
+            <FxField label="Model"><input value={form.model} onChange={set("model")} className={fxCls} /></FxField>
+          </div>
+          <FxField label="Notes"><textarea value={form.notes} onChange={set("notes")} rows={2} className={fxCls} /></FxField>
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="px-3 py-1.5 text-sm text-ink-soft">Cancel</button>
+            <button type="submit" disabled={busy} data-testid="fixture-submit" className="bg-clay text-white px-3 py-1.5 text-sm rounded-md disabled:opacity-50">{busy ? "Saving…" : "Add fixture"}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function FxField({ label, children }) {
+  return (
+    <label className="block">
+      <span className="text-[11px] uppercase tracking-wide text-ink-soft font-semibold">{label}</span>
+      <div className="mt-1">{children}</div>
+    </label>
+  );
+}
+const fxCls = "w-full bg-bone-paper border border-edge rounded-md px-3 py-2 text-ink text-sm focus:border-clay outline-none";
 
 function Kv({ label, v }) {
   return (
