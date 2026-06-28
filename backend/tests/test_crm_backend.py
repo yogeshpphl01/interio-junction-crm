@@ -105,7 +105,7 @@ class TestMeta:
         r = s.get(f"{API}/meta", timeout=15)
         assert r.status_code == 200
         j = r.json()
-        assert len(j["stages"]) == 6
+        assert len(j["stages"]) == 9
         assert j["default_weights"]
 
 
@@ -156,20 +156,20 @@ class TestPipelineGates:
         for k in ("measurements", "revisions", "payments", "documents", "activities", "stage_history"):
             assert k in j
 
-    def test_stage_gate_blocks_stage3_to_4_without_measurement(self, admin):
+    def test_stage_gate_blocks_site_measurement_to_design_without_measurement(self, admin):
         s, _ = admin
         leads = s.get(f"{API}/leads").json()
-        # find a lead at stage 3 with no completed measurement
+        # find a lead at Site Measurement (5) with no completed measurement
         target = None
         for l in leads:
-            if l.get("stage") == 3:
+            if l.get("stage") == 5:
                 detail = s.get(f"{API}/leads/{l['id']}").json()
                 if not any(m.get("status") == "Completed" for m in detail.get("measurements", [])):
                     target = l
                     break
         if not target:
-            pytest.skip("no stage-3 lead without completed measurement found")
-        r = s.post(f"{API}/leads/{target['id']}/move", json={"to_stage": 4}, timeout=15)
+            pytest.skip("no stage-5 lead without completed measurement found")
+        r = s.post(f"{API}/leads/{target['id']}/move", json={"to_stage": 6}, timeout=15)
         assert r.status_code == 409, f"expected 409 block, got {r.status_code} {r.text}"
         assert "Site Measurement" in r.json().get("detail", "") or "Completed" in r.json().get("detail", "")
 
@@ -178,11 +178,11 @@ class TestPipelineGates:
         leads = s.get(f"{API}/leads").json()
         target = None
         for l in leads:
-            if l.get("stage") == 3 and l.get("project_id"):
+            if l.get("stage") == 5 and l.get("project_id"):
                 target = l
                 break
         if not target:
-            pytest.skip("no stage-3 lead with project")
+            pytest.skip("no stage-5 lead with project")
         # mark one measurement Completed (create if none)
         detail = s.get(f"{API}/leads/{target['id']}").json()
         ms_list = detail.get("measurements", [])
@@ -194,38 +194,34 @@ class TestPipelineGates:
             ms_id = cr.json()["id"]
         up = s.patch(f"{API}/measurements/{ms_id}", json={"status": "Completed"})
         assert up.status_code == 200, up.text
-        # now move to 4
-        mv = s.post(f"{API}/leads/{target['id']}/move", json={"to_stage": 4}, timeout=15)
+        # now move to Design (6)
+        mv = s.post(f"{API}/leads/{target['id']}/move", json={"to_stage": 6}, timeout=15)
         assert mv.status_code == 200, mv.text
-        assert mv.json()["stage"] == 4
+        assert mv.json()["stage"] == 6
 
-    def test_auto_project_on_stage3(self, admin):
+    def test_auto_project_on_booking(self, admin):
         s, _ = admin
-        # find a stage 1/2 lead and push to stage 3
+        # a project (Client ID) is opened when the lead is Booked (stage 4)
         leads = s.get(f"{API}/leads").json()
-        target = next((l for l in leads if l.get("stage") in (1, 2) and not l.get("project_id")), None)
+        target = next((l for l in leads if l.get("stage") in (1, 2, 3) and not l.get("project_id")), None)
         if not target:
             pytest.skip("no early-stage lead without project")
-        # move stage 1->2 if needed then 2->3
-        if target["stage"] == 1:
-            r = s.post(f"{API}/leads/{target['id']}/move", json={"to_stage": 2})
-            assert r.status_code == 200
-        r = s.post(f"{API}/leads/{target['id']}/move", json={"to_stage": 3})
+        r = s.post(f"{API}/leads/{target['id']}/move", json={"to_stage": 4})
         assert r.status_code == 200, r.text
         j = r.json()
         assert j.get("project") is not None
         assert j["project"]["project_code"].startswith("IJ-")
 
-    def test_gate_4_to_5_requires_approved_revision(self, admin):
+    def test_gate_design_to_production_requires_approved_revision(self, admin):
         s, _ = admin
         leads = s.get(f"{API}/leads").json()
-        target = next((l for l in leads if l.get("stage") == 4), None)
+        target = next((l for l in leads if l.get("stage") == 6), None)
         if not target:
-            pytest.skip("no stage-4 lead")
+            pytest.skip("no stage-6 lead")
         detail = s.get(f"{API}/leads/{target['id']}").json()
         if any(r.get("status") == "Approved" for r in detail.get("revisions", [])):
             pytest.skip("already has approved revision")
-        r = s.post(f"{API}/leads/{target['id']}/move", json={"to_stage": 5})
+        r = s.post(f"{API}/leads/{target['id']}/move", json={"to_stage": 7})
         assert r.status_code == 409
 
 
@@ -373,8 +369,8 @@ class TestAnalytics:
         assert j["scope"] == "company"
         for k in ("total_pipeline", "forecast", "win_rate", "cycle_days"):
             assert k in j["kpis"]
-        assert len(j["funnel"]) == 6
-        assert len(j["forecast_trend"]) == 6
+        assert len(j["funnel"]) == 9
+        assert len(j["forecast_trend"]) == 6  # 6-month trend (unrelated to stage count)
         assert "by_source" in j
 
     def test_sales_self_scope(self, sales):

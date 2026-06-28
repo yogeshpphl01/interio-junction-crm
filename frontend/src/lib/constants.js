@@ -1,10 +1,14 @@
+// 9-stage pipeline — kept in sync with the backend core.py STAGES.
 export const STAGES = [
-  { id: 1, name: "Lead Captured & Qualified", short: "Captured", color: "#D4A373" },
-  { id: 2, name: "Initial Consultation", short: "Consultation", color: "#8A9A5B" },
-  { id: 3, name: "Site Measurement", short: "Site Measurement", color: "#6B705C" },
-  { id: 4, name: "2D/3D Design & Revision", short: "Design", color: "#9C6644" },
-  { id: 5, name: "Final Quotation & Sign-off", short: "Quotation", color: "#A95A3F" },
-  { id: 6, name: "Sent to Factory Production", short: "Factory", color: "#4A5D23" },
+  { id: 1, name: "Leads", short: "Leads", color: "#D4A373" },
+  { id: 2, name: "Initial Estimate", short: "Initial Estimate", color: "#C99A4B" },
+  { id: 3, name: "Consultation", short: "Consultation", color: "#8A9A5B" },
+  { id: 4, name: "Booking", short: "Booking", color: "#7C9082" },
+  { id: 5, name: "Site Measurement", short: "Site Measurement", color: "#6B705C" },
+  { id: 6, name: "Design", short: "Design", color: "#9C6644" },
+  { id: 7, name: "Production Design", short: "Production Design", color: "#B0613A" },
+  { id: 8, name: "Revised Estimate", short: "Revised Estimate", color: "#A95A3F" },
+  { id: 9, name: "Factory Production", short: "Factory", color: "#4A5D23" },
 ];
 
 /*

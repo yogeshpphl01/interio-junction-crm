@@ -30,8 +30,8 @@ SOURCE_RATIO = {
     "Other": 0.4,
 }
 
-# stage 1..6 progress ratio; Won = 1.0
-STAGE_PROGRESS_RATIO = {1: 0.1, 2: 0.25, 3: 0.45, 4: 0.65, 5: 0.85, 6: 1.0}
+# stage 1..9 progress ratio; Won = 1.0
+STAGE_PROGRESS_RATIO = {1: 0.08, 2: 0.16, 3: 0.28, 4: 0.45, 5: 0.55, 6: 0.68, 7: 0.80, 8: 0.90, 9: 1.0}
 
 
 def _budget_ratio(budget: float) -> tuple[float, str]:
@@ -132,7 +132,7 @@ def compute_score(lead: dict[str, Any], activity_count: int, weights: dict[str, 
         {
             "key": "pipeline_progress",
             "label": "Pipeline Progress",
-            "raw": f"Stage {stage}/6" + (f" • {status}" if status != "Active" else ""),
+            "raw": f"Stage {stage}/9" + (f" • {status}" if status != "Active" else ""),
             "ratio": round(sp_ratio, 2),
             "weight": w["pipeline_progress"],
             "points": round(sp_ratio * w["pipeline_progress"], 1),

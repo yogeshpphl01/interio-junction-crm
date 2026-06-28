@@ -103,7 +103,7 @@ export default function LeadDetail() {
           <LifecycleBadge phase={data.lifecycle_phase} />
           <span className="text-xs text-ink-muted">
             Furthest stage reached:{" "}
-            <span className="text-ink-soft font-medium">{data.furthest_stage || data.stage}</span> / 6
+            <span className="text-ink-soft font-medium">{data.furthest_stage || data.stage}</span> / 9
           </span>
           {data.dropped_stage && (
             <span className="text-xs text-[#A95A3F]">
