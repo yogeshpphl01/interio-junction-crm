@@ -12,7 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from core import db, DEFAULT_AUTOMATIONS
 from storage import init_storage
-from seed_data import seed_users, seed_leads, migrate_pipeline_stages
+from seed_data import seed_users, seed_leads, migrate_pipeline_stages, purge_ceo_logs
 from permissions import seed_roles
 from routers import ALL_ROUTERS
 
@@ -64,6 +64,8 @@ async def on_startup():
     # One-time 6-stage -> 9-stage remap of existing leads (must precede seeding).
     await migrate_pipeline_stages(db)
     await seed_leads(db, email_to_id)
+    # One-time clean-up of the CEO account's accumulated audit-log records.
+    await purge_ceo_logs(db)
 
     for a in DEFAULT_AUTOMATIONS:
         if not await db.automations.find_one({"key": a["key"]}):

@@ -534,6 +534,16 @@ class Collection:
             status = await conn.execute(sql, *params)
         return int(status.split()[-1]) if status else 0
 
+    async def delete_many(self, filt: dict) -> int:
+        """Delete every row matching `filt` (an empty filter matches all rows,
+        mirroring MongoDB). Returns the number of rows removed."""
+        params: list = []
+        where = build_where(self.table, filt or {}, params)
+        sql = f"DELETE FROM {_q(self.name)}{where}"
+        async with self.db.pool.acquire() as conn:
+            status = await conn.execute(sql, *params)
+        return int(status.split()[-1]) if status else 0
+
     async def create_index(self, keys, unique: bool = False, **_kwargs) -> None:
         cols = normalize_index_keys(keys)
         sql = index_ddl_from_spec(self.name, cols, unique)
