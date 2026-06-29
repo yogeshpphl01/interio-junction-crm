@@ -99,12 +99,13 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
     await ensure_lead_visible(user, lead)
     enriched = (await enrich_leads([lead]))[0]
     project = enriched.get("project")
-    measurements, revisions, payments, documents = [], [], [], []
+    measurements, revisions, payments, documents, fixtures = [], [], [], [], []
     if project:
         measurements = await db.site_measurements.find({"project_id": project["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
         revisions = await db.design_revisions.find({"project_id": project["id"]}, {"_id": 0}).sort("revision_number", 1).to_list(500)
         payments = await db.payments.find({"project_id": project["id"]}, {"_id": 0}).sort("due_date", 1).to_list(500)
         documents = await db.documents.find({"project_id": project["id"], "is_deleted": {"$ne": True}}, {"_id": 0}).sort("created_at", -1).to_list(500)
+        fixtures = await db.fixtures.find({"project_id": project["id"]}, {"_id": 0}).sort("created_at", 1).to_list(500)
     activities = await db.activities.find({"lead_id": lead_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
     stage_history = await db.stage_history.find({"lead_id": lead_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
     actor_ids = {a.get("actor_id") for a in activities} | {h.get("changed_by") for h in stage_history}
@@ -127,7 +128,7 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
         m["supervisor"] = actors.get(m.get("supervisor_id"))
     return {
         **enriched, "measurements": measurements, "revisions": revisions,
-        "payments": payments, "documents": documents,
+        "payments": payments, "documents": documents, "fixtures": fixtures,
         "activities": activities, "stage_history": stage_history,
     }
 
@@ -242,7 +243,7 @@ async def move_lead(lead_id: str, payload: StageMoveInput, user: dict = Depends(
         raise HTTPException(status_code=403, detail="Only admin/sales can move leads")
     await ensure_lead_visible(user, lead)
     to = int(payload.to_stage)
-    if to < 1 or to > 6:
+    if to < 1 or to > len(STAGES):
         raise HTTPException(status_code=400, detail="Invalid stage")
     if to == lead["stage"]:
         return (await enrich_leads([lead]))[0]
@@ -265,7 +266,9 @@ async def move_lead(lead_id: str, payload: StageMoveInput, user: dict = Depends(
     if to >= JOURNEY_DELIVERED_STAGE and not lead.get("delivered_at"):
         update["delivered_at"] = ts
 
-    if to >= 3 and not lead.get("project_id"):
+    # A project (Client ID) is opened when the lead is Booked (stage 4); every
+    # later stage — Site Measurement, Design, Production Design — attaches to it.
+    if to >= 4 and not lead.get("project_id"):
         code = await next_project_code()
         proj_doc = {
             "id": str(uuid.uuid4()),
@@ -283,9 +286,14 @@ async def move_lead(lead_id: str, payload: StageMoveInput, user: dict = Depends(
         await log_audit(db, user, "project.created", "project", proj_doc["id"], proj_doc["project_code"], {"lead_id": lead_id})
         await run_workflow_auto_assign_supervisor(lead_id, proj_doc["id"])
 
-    if to >= 5 and from_stage < 5 and lead.get("project_id"):
-        await db.projects.update_one({"id": lead["project_id"]}, {"$set": {"signed_off": True, "contract_value": lead.get("tentative_budget")}})
-    if to >= 6 and from_stage < 6 and lead.get("project_id"):
+    # Booking (4) = the customer has committed -> mark the project signed-off.
+    if to >= 4 and from_stage < 4 and (update.get("project_id") or lead.get("project_id")):
+        await db.projects.update_one(
+            {"id": update.get("project_id") or lead["project_id"]},
+            {"$set": {"signed_off": True, "contract_value": lead.get("tentative_budget")}},
+        )
+    # Factory Production (9) = handed over to the factory.
+    if to >= 9 and from_stage < 9 and lead.get("project_id"):
         await db.projects.update_one({"id": lead["project_id"]}, {"$set": {"sent_to_factory": True, "factory_handover_at": now_iso()}})
 
     await db.leads.update_one({"id": lead_id}, {"$set": update})

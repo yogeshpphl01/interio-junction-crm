@@ -16,7 +16,10 @@ def _iso(dt: datetime) -> str:
 #   Short stage labels + a builder for the per-stage journey timeline, so seeded
 #   leads carry the same lifecycle/journey data that live leads accrue.
 # </journey-seed>
-STAGE_SHORT = {1: "Captured", 2: "Consultation", 3: "Site Measurement", 4: "Design", 5: "Quotation", 6: "Factory"}
+STAGE_SHORT = {
+    1: "Leads", 2: "Initial Estimate", 3: "Consultation", 4: "Booking", 5: "Site Measurement",
+    6: "Design", 7: "Production Design", 8: "Revised Estimate", 9: "Factory",
+}
 
 
 def _seed_journey(created: datetime, current_stage: int) -> list[dict]:
@@ -33,7 +36,7 @@ def _seed_journey(created: datetime, current_stage: int) -> list[dict]:
 
 
 def _seed_lifecycle(stage: int) -> str:
-    if stage >= 6:
+    if stage >= 9:
         return "Completed"
     if stage >= 2:
         return "In-Progress"
@@ -132,7 +135,7 @@ SAMPLE_LEADS = [
         "kitchen_layout": "Island",
         "tentative_budget": 6500000,
         "requirements": "Premium villa interior; full carpentry, ceiling, modular kitchen.",
-        "stage": 1,
+        "stage": 2,
     },
     {
         "full_name": "Rahul Verma",
@@ -146,7 +149,7 @@ SAMPLE_LEADS = [
         "kitchen_layout": "Parallel",
         "tentative_budget": 550000,
         "requirements": "Modular kitchen + master wardrobe.",
-        "stage": 2,
+        "stage": 4,
     },
     {
         "full_name": "Sneha Patel",
@@ -160,7 +163,7 @@ SAMPLE_LEADS = [
         "kitchen_layout": "U-shape",
         "tentative_budget": 2800000,
         "requirements": "Client handover; full carpentry package.",
-        "stage": 3,
+        "stage": 5,
     },
     {
         "full_name": "Kunal Bansal",
@@ -174,7 +177,7 @@ SAMPLE_LEADS = [
         "kitchen_layout": "L-shape",
         "tentative_budget": 1200000,
         "requirements": "Kitchen + wardrobes + TV unit.",
-        "stage": 4,
+        "stage": 6,
     },
     {
         "full_name": "Lalit Builders Pvt Ltd",
@@ -188,7 +191,7 @@ SAMPLE_LEADS = [
         "kitchen_layout": "Straight",
         "tentative_budget": 4200000,
         "requirements": "16-unit interior package for new tower.",
-        "stage": 4,
+        "stage": 7,
     },
     {
         "full_name": "Priya Nair",
@@ -201,8 +204,8 @@ SAMPLE_LEADS = [
         "bhk_type": "3 BHK",
         "kitchen_layout": "U-shape",
         "tentative_budget": 1850000,
-        "requirements": "Final quotation pending; signoff in 2 days.",
-        "stage": 5,
+        "requirements": "Revised quotation pending; signoff in 2 days.",
+        "stage": 8,
     },
     {
         "full_name": "Ahuja Residence",
@@ -216,7 +219,7 @@ SAMPLE_LEADS = [
         "kitchen_layout": "Island",
         "tentative_budget": 3600000,
         "requirements": "Sent to factory; awaiting handover schedule.",
-        "stage": 6,
+        "stage": 9,
     },
 ]
 
@@ -239,7 +242,7 @@ async def seed_leads(db, email_to_id: dict[str, str]) -> None:
         doc = {
             "id": lead_id,
             **lead,
-            "status": "Active" if lead["stage"] != 6 else "Active",
+            "status": "Active",
             "assigned_to": sales_id,
             "created_by": admin_id,
             "project_id": None,
@@ -247,12 +250,12 @@ async def seed_leads(db, email_to_id: dict[str, str]) -> None:
             "lifecycle_phase": _seed_lifecycle(lead["stage"]),
             "furthest_stage": lead["stage"],
             "journey": _seed_journey(created, lead["stage"]),
-            "delivered_at": _iso(now - timedelta(days=2)) if lead["stage"] >= 6 else None,
+            "delivered_at": _iso(now - timedelta(days=2)) if lead["stage"] >= 9 else None,
             "created_at": _iso(created),
             "updated_at": _iso(updated),
         }
-        # Create project if stage >= 3
-        if lead["stage"] >= 3:
+        # A project (Client ID) is opened once the lead is Booked (stage >= 4).
+        if lead["stage"] >= 4:
             proj_id = str(uuid.uuid4())
             project_code = f"IJ-2026-{project_counter:04d}"
             project_counter += 1
@@ -261,10 +264,10 @@ async def seed_leads(db, email_to_id: dict[str, str]) -> None:
                 "project_code": project_code,
                 "lead_id": lead_id,
                 "rough_estimate": lead["tentative_budget"],
-                "contract_value": lead["tentative_budget"] if lead["stage"] >= 5 else None,
-                "signed_off": lead["stage"] >= 5,
-                "sent_to_factory": lead["stage"] >= 6,
-                "factory_handover_at": _iso(now - timedelta(days=2)) if lead["stage"] >= 6 else None,
+                "contract_value": lead["tentative_budget"] if lead["stage"] >= 4 else None,
+                "signed_off": lead["stage"] >= 4,
+                "sent_to_factory": lead["stage"] >= 9,
+                "factory_handover_at": _iso(now - timedelta(days=2)) if lead["stage"] >= 9 else None,
                 "created_at": _iso(created),
             }
             await db.projects.insert_one(proj_doc)
@@ -276,20 +279,20 @@ async def seed_leads(db, email_to_id: dict[str, str]) -> None:
                 "id": ms_id,
                 "project_id": proj_id,
                 "scheduled_at": _iso(created + timedelta(days=1)),
-                "completed_at": _iso(created + timedelta(days=2)) if lead["stage"] >= 4 else None,
+                "completed_at": _iso(created + timedelta(days=2)) if lead["stage"] >= 6 else None,
                 "supervisor_id": supervisor_id,
-                "total_area_sqft": 1450 + i * 50 if lead["stage"] >= 4 else None,
-                "ceiling_height": 10.5 if lead["stage"] >= 4 else None,
-                "status": "Completed" if lead["stage"] >= 4 else "Scheduled",
+                "total_area_sqft": 1450 + i * 50 if lead["stage"] >= 6 else None,
+                "ceiling_height": 10.5 if lead["stage"] >= 6 else None,
+                "status": "Completed" if lead["stage"] >= 6 else "Scheduled",
                 "notes": "Standard residential measurement.",
                 "created_at": _iso(created + timedelta(hours=4)),
             }
             await db.site_measurements.insert_one(ms_doc)
 
-            # Design revisions
-            if lead["stage"] >= 4:
-                for rn, st in [(1, "Shared"), (2, "Approved" if lead["stage"] >= 5 else "Revision Requested")]:
-                    if rn == 2 and lead["stage"] < 4:
+            # Design revisions (start once the Design stage is reached)
+            if lead["stage"] >= 6:
+                for rn, st in [(1, "Shared"), (2, "Approved" if lead["stage"] >= 7 else "Revision Requested")]:
+                    if rn == 2 and lead["stage"] < 6:
                         continue
                     rev_doc = {
                         "id": str(uuid.uuid4()),
@@ -303,8 +306,8 @@ async def seed_leads(db, email_to_id: dict[str, str]) -> None:
                     }
                     await db.design_revisions.insert_one(rev_doc)
 
-            # Payments
-            if lead["stage"] >= 5:
+            # Payments (milestone rail opens at Booking)
+            if lead["stage"] >= 4:
                 milestones = [
                     ("Booking Advance", lead["tentative_budget"] * 0.10, "Paid"),
                     ("Design Approval", lead["tentative_budget"] * 0.40, "Paid"),
@@ -352,3 +355,38 @@ async def seed_leads(db, email_to_id: dict[str, str]) -> None:
                 "created_at": _iso(created + timedelta(days=1)),
             })
     logger.info("Seeded sample leads")
+
+
+# <migration name="pipeline_v2">
+#   One-time remap of existing leads from the OLD 6-stage pipeline to the NEW
+#   9-stage pipeline. Guarded by a settings flag so it runs exactly once and
+#   re-deploys are safe. It MUST run before seed_leads so freshly-seeded
+#   new-pipeline leads are never remapped. New installs (no leads) just set
+#   the flag. Mapping (old -> new), monotonic so no lead moves backward:
+#     1 Captured->1 Leads, 2 Consultation->3 Consultation,
+#     3 Site Measurement->5, 4 Design->6, 5 Quotation/Sign-off->8 Revised
+#     Estimate, 6 Factory->9 Factory Production.
+# </migration>
+PIPELINE_V2_MAP = {1: 1, 2: 3, 3: 5, 4: 6, 5: 8, 6: 9}
+
+
+async def migrate_pipeline_stages(db) -> None:
+    if await db.settings.find_one({"key": "pipeline_v2_migrated"}):
+        return
+    moved = 0
+    leads = await db.leads.find({}, {"_id": 0}).to_list(100000)
+    for l in leads:
+        upd = {}
+        for field in ("stage", "furthest_stage", "dropped_stage"):
+            v = l.get(field)
+            if isinstance(v, int) and PIPELINE_V2_MAP.get(v, v) != v:
+                upd[field] = PIPELINE_V2_MAP[v]
+        if upd:
+            await db.leads.update_one({"id": l["id"]}, {"$set": upd})
+            moved += 1
+    await db.settings.update_one(
+        {"key": "pipeline_v2_migrated"},
+        {"$set": {"value": {"migrated_at": _iso(datetime.now(timezone.utc)), "leads_moved": moved}}},
+        upsert=True,
+    )
+    logger.info(f"Pipeline v2 migration: remapped {moved} lead(s) to the 9-stage pipeline")

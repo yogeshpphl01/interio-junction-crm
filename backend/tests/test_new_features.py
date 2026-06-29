@@ -293,7 +293,7 @@ class TestRegression:
         s, _ = admin
         r = s.get(f"{API}/meta")
         assert r.status_code == 200
-        assert len(r.json()["stages"]) == 6
+        assert len(r.json()["stages"]) == 9
 
     def test_leads_list_no_id_leak(self, admin):
         s, _ = admin

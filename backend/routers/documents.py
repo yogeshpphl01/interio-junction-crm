@@ -44,7 +44,9 @@ async def upload_document(
     await ensure_project_visible(user, project_id)
     if not has_permission(user, "documents.upload"):
         raise HTTPException(status_code=403, detail="You don't have permission to upload documents")
-    if user["role"] == ROLE_DESIGNER and type not in ("2D CAD", "3D Render", "Quotation PDF", "Other"):
+    if user["role"] == ROLE_DESIGNER and type not in (
+        "2D CAD", "3D Render", "Design File", "Quotation PDF", "Cutlist", "BOQ", "BOM", "Other",
+    ):
         raise HTTPException(status_code=403, detail="Designers can upload only design files")
     if user["role"] == ROLE_SUPERVISOR and type not in ("Site Measurement Sheet", "Site Photo", "Other"):
         raise HTTPException(status_code=403, detail="Supervisors can upload only site files")

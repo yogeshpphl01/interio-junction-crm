@@ -41,15 +41,24 @@ db = PostgresDatabase.from_env()
 client = db
 
 # ---------- Constants ----------
+# <pipeline name="9-stage blueprint">
+#   The full Interio Junction sales+production pipeline. `id` is the stored
+#   integer stage on each lead; `short` is what the Pipeline board / badges show.
+#   (Kept in sync with the frontend's lib/constants.js STAGES.)
+# </pipeline>
 STAGES = [
-    {"id": 1, "name": "Lead Captured & Qualified", "short": "Captured", "color": "#D4A373"},
-    {"id": 2, "name": "Initial Consultation & Rough Estimate", "short": "Consultation", "color": "#8A9A5B"},
-    {"id": 3, "name": "Site Measurement Assigned", "short": "Site Measurement", "color": "#6B705C"},
-    {"id": 4, "name": "2D/3D Design & Revision Cycle", "short": "Design", "color": "#9C6644"},
-    {"id": 5, "name": "Final Quotation & Sign-off", "short": "Quotation", "color": "#A95A3F"},
-    {"id": 6, "name": "Sent to Factory Production", "short": "Factory", "color": "#4A5D23"},
+    {"id": 1, "name": "Leads", "short": "Leads", "color": "#D4A373"},
+    {"id": 2, "name": "Initial Estimate", "short": "Initial Estimate", "color": "#C99A4B"},
+    {"id": 3, "name": "Consultation", "short": "Consultation", "color": "#8A9A5B"},
+    {"id": 4, "name": "Booking", "short": "Booking", "color": "#7C9082"},
+    {"id": 5, "name": "Site Measurement", "short": "Site Measurement", "color": "#6B705C"},
+    {"id": 6, "name": "Design", "short": "Design", "color": "#9C6644"},
+    {"id": 7, "name": "Production Design", "short": "Production Design", "color": "#B0613A"},
+    {"id": 8, "name": "Revised Estimate", "short": "Revised Estimate", "color": "#A95A3F"},
+    {"id": 9, "name": "Factory Production", "short": "Factory", "color": "#4A5D23"},
 ]
-STAGE_WIN_RATE = {1: 0.10, 2: 0.25, 3: 0.45, 4: 0.65, 5: 0.85, 6: 1.0}
+# Probability a lead at each stage eventually converts (weighted forecast).
+STAGE_WIN_RATE = {1: 0.08, 2: 0.16, 3: 0.28, 4: 0.45, 5: 0.55, 6: 0.68, 7: 0.80, 8: 0.90, 9: 1.0}
 LEAD_TYPES = ["Retail Client", "Architect", "Interior Designer", "Builder"]
 BHK_TYPES = ["1 BHK", "2 BHK", "3 BHK", "4 BHK", "5 BHK", "Villa"]
 KITCHEN_LAYOUTS = ["L-shape", "U-shape", "Parallel", "Straight", "Island"]
@@ -61,8 +70,11 @@ LEAD_STATUSES = ["Active", "Won", "Lost", "On-hold"]
 # </constant>
 LEAD_LIFECYCLE_PHASES = LIFECYCLE_PHASES
 # Stage at which the project is considered delivered (sent to factory production).
-JOURNEY_DELIVERED_STAGE = 6
-DOC_TYPES = ["Site Measurement Sheet", "2D CAD", "3D Render", "Quotation PDF", "Site Photo", "Other"]
+JOURNEY_DELIVERED_STAGE = 9
+DOC_TYPES = [
+    "Site Measurement Sheet", "2D CAD", "3D Render", "Design File", "Quotation PDF",
+    "Cutlist", "BOQ", "BOM", "Site Photo", "Other",
+]
 
 ROLE_ADMIN = "admin"
 ROLE_SALES = "sales"
@@ -464,26 +476,32 @@ async def next_project_code() -> str:
 
 
 async def evaluate_gate(lead: dict, to_stage: int) -> tuple[bool, str]:
-    """Blueprint stage gates. Returns (allowed, reason_if_blocked)."""
+    """Blueprint stage gates (9-stage pipeline). Returns (allowed, reason_if_blocked).
+
+    Prerequisites are checked when first crossing into the gated stage:
+      • Design (6)            -> at least one Site Measurement Completed.
+      • Production Design (7) -> at least one Design Revision Approved.
+      • Factory Production (9)-> project Booked/Signed-off and >=50% payments Paid.
+    """
     proj_id = lead.get("project_id")
-    if to_stage >= 4 and lead["stage"] < 4:
+    if to_stage >= 6 and lead["stage"] < 6:
         if not proj_id:
-            return False, "Project not initialized. Move through Site Measurement first."
+            return False, "Project not initialized. Move through Booking / Site Measurement first."
         completed = await db.site_measurements.count_documents({"project_id": proj_id, "status": "Completed"})
         if completed < 1:
             return False, "Blocked: at least one Site Measurement must be marked Completed."
-    if to_stage >= 5 and lead["stage"] < 5:
+    if to_stage >= 7 and lead["stage"] < 7:
         if not proj_id:
             return False, "Project not initialized."
         approved = await db.design_revisions.count_documents({"project_id": proj_id, "status": "Approved"})
         if approved < 1:
             return False, "Blocked: at least one Design Revision must be marked Approved."
-    if to_stage >= 6 and lead["stage"] < 6:
+    if to_stage >= 9 and lead["stage"] < 9:
         if not proj_id:
             return False, "Project not initialized."
         proj = await db.projects.find_one({"id": proj_id}, {"_id": 0})
         if not proj or not proj.get("signed_off"):
-            return False, "Blocked: project must be Signed-off (Quotation stage)."
+            return False, "Blocked: project must be Booked / Signed-off first."
         agg = db.payments.aggregate([
             {"$match": {"project_id": proj_id}},
             {"$group": {"_id": "$status", "total": {"$sum": "$amount"}}},
