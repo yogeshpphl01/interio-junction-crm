@@ -63,40 +63,40 @@ export default function NewLeadModal({ onClose, onCreated }) {
           <Field label="Phone" required>
             <input data-testid="lead-phone" required value={form.phone} onChange={(e) => set("phone", e.target.value)} className={inputCls} />
           </Field>
-          <Field label="Email">
-            <input data-testid="lead-email" value={form.email} onChange={(e) => set("email", e.target.value)} className={inputCls} />
+          <Field label="Email" required>
+            <input data-testid="lead-email" type="email" required value={form.email} onChange={(e) => set("email", e.target.value)} className={inputCls} />
           </Field>
-          <Field label="City">
-            <input data-testid="lead-city" value={form.city} onChange={(e) => set("city", e.target.value)} className={inputCls} />
+          <Field label="City" required>
+            <input data-testid="lead-city" required value={form.city} onChange={(e) => set("city", e.target.value)} className={inputCls} />
           </Field>
-          <Field label="Lead type">
-            <select data-testid="lead-type" value={form.lead_type} onChange={(e) => set("lead_type", e.target.value)} className={inputCls}>
+          <Field label="Lead type" required>
+            <select data-testid="lead-type" required value={form.lead_type} onChange={(e) => set("lead_type", e.target.value)} className={inputCls}>
               {meta?.lead_types.map((x) => <option key={x}>{x}</option>)}
             </select>
           </Field>
-          <Field label="Source">
-            <select data-testid="lead-source" value={form.source} onChange={(e) => set("source", e.target.value)} className={inputCls}>
+          <Field label="Source" required>
+            <select data-testid="lead-source" required value={form.source} onChange={(e) => set("source", e.target.value)} className={inputCls}>
               {meta?.lead_sources.map((x) => <option key={x}>{x}</option>)}
             </select>
           </Field>
-          <Field label="BHK">
-            <select data-testid="lead-bhk" value={form.bhk_type} onChange={(e) => set("bhk_type", e.target.value)} className={inputCls}>
+          <Field label="BHK" required>
+            <select data-testid="lead-bhk" required value={form.bhk_type} onChange={(e) => set("bhk_type", e.target.value)} className={inputCls}>
               {meta?.bhk_types.map((x) => <option key={x}>{x}</option>)}
             </select>
           </Field>
-          <Field label="Kitchen layout">
-            <select data-testid="lead-kitchen" value={form.kitchen_layout} onChange={(e) => set("kitchen_layout", e.target.value)} className={inputCls}>
+          <Field label="Kitchen layout" required>
+            <select data-testid="lead-kitchen" required value={form.kitchen_layout} onChange={(e) => set("kitchen_layout", e.target.value)} className={inputCls}>
               {meta?.kitchen_layouts.map((x) => <option key={x}>{x}</option>)}
             </select>
           </Field>
-          <Field label="Tentative budget (₹)">
-            <input data-testid="lead-budget" type="number" min={0} value={form.tentative_budget} onChange={(e) => set("tentative_budget", e.target.value)} className={inputCls} />
+          <Field label="Tentative budget (₹)" required>
+            <input data-testid="lead-budget" type="number" min={0} required value={form.tentative_budget} onChange={(e) => set("tentative_budget", e.target.value)} className={inputCls} />
           </Field>
-          <Field label="Address" className="sm:col-span-2">
-            <input data-testid="lead-address" value={form.address} onChange={(e) => set("address", e.target.value)} className={inputCls} />
+          <Field label="Address" required className="sm:col-span-2">
+            <input data-testid="lead-address" required value={form.address} onChange={(e) => set("address", e.target.value)} className={inputCls} />
           </Field>
-          <Field label="Requirements" className="sm:col-span-2">
-            <textarea data-testid="lead-requirements" rows={3} value={form.requirements} onChange={(e) => set("requirements", e.target.value)} className={inputCls} />
+          <Field label="Requirements" required className="sm:col-span-2">
+            <textarea data-testid="lead-requirements" required rows={3} value={form.requirements} onChange={(e) => set("requirements", e.target.value)} className={inputCls} />
           </Field>
           <div className="sm:col-span-2 flex items-center justify-end gap-2 pt-2 border-t border-edge">
             <button type="button" onClick={onClose} className="px-4 py-2 text-ink-soft hover:text-ink text-sm">Cancel</button>
@@ -116,7 +116,7 @@ function Field({ label, children, required, className = "" }) {
   return (
     <label className={`block ${className}`}>
       <span className="text-[11px] uppercase tracking-wide text-ink-soft font-semibold">
-        {label}{required && <span className="text-clay ml-0.5">*</span>}
+        {label}{required && <span className="text-[#DC2626] ml-0.5">*</span>}
       </span>
       <div className="mt-1">{children}</div>
     </label>
