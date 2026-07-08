@@ -3,8 +3,7 @@
 **Company Application** (employees) + **Client Application** (customers)
 Production-grade architecture & design specification.
 
-> **Status:** Living document, built in installments.
-> **This file — Installment 1** covers sections **1–12**. Sections **13–30** follow in later installments (numbering preserved).
+> **Status:** ✅ **Complete — all 30 sections** (written across 5 installments; commits `b3bd9bd → a8c52e3 → …`). Design/architecture deliverable only — **not implementation yet** (build proceeds in phases per §30.4 once §30.5 decisions are confirmed).
 > **Author role stance:** Senior Enterprise Solution Architect · Google Workspace/Cloud Architect · Mobile App Architect · Cybersecurity Architect · Database Architect · System Analyst · UI/UX Architect · Business Process Consultant.
 
 ---
@@ -50,24 +49,24 @@ Key mapping at a glance:
 | 10 | Database Design (ERD) | ✅ 1 |
 | 11 | API Architecture | ✅ 1 |
 | 12 | Chat System Design | ✅ 1 |
-| 13 | File Management Design | ⏳ 2 |
-| 14 | QR Tracking Architecture | ⏳ 2 |
-| 15 | Estimate Engine Design | ⏳ 2 |
-| 16 | Payment Workflow | ⏳ 2 |
-| 17 | Production Workflow | ⏳ 2 |
-| 18 | Installation Workflow | ⏳ 2 |
-| 19 | Notification Architecture | ⏳ 3 |
-| 20 | Security Architecture | ⏳ 3 |
-| 21 | Cybersecurity Threat Model & Mitigations | ⏳ 3 |
-| 22 | Google Cloud Architecture | ⏳ 3 |
-| 23 | Scalability Strategy | ⏳ 4 |
-| 24 | Disaster Recovery & Backup Plan | ⏳ 4 |
-| 25 | UI/UX Navigation Structure | ⏳ 4 |
-| 26 | Admin Console Design | ⏳ 4 |
-| 27 | Client Application Design | ⏳ 4 |
-| 28 | Company Application Design | ⏳ 4 |
-| 29 | Recommended Technology Stack | ⏳ 5 |
-| 30 | Risks, Assumptions, and Recommendations | ⏳ 5 |
+| 13 | File Management Design | ✅ 2 |
+| 14 | QR Tracking Architecture | ✅ 2 |
+| 15 | Estimate Engine Design | ✅ 2 |
+| 16 | Payment Workflow | ✅ 2 |
+| 17 | Production Workflow | ✅ 2 |
+| 18 | Installation Workflow | ✅ 2 |
+| 19 | Notification Architecture | ✅ 3 |
+| 20 | Security Architecture | ✅ 3 |
+| 21 | Cybersecurity Threat Model & Mitigations | ✅ 3 |
+| 22 | Google Cloud Architecture | ✅ 3 |
+| 23 | Scalability Strategy | ✅ 4 |
+| 24 | Disaster Recovery & Backup Plan | ✅ 4 |
+| 25 | UI/UX Navigation Structure | ✅ 4 |
+| 26 | Admin Console Design | ✅ 4 |
+| 27 | Client Application Design | ✅ 4 |
+| 28 | Company Application Design | ✅ 4 |
+| 29 | Recommended Technology Stack | ✅ 5 |
+| 30 | Risks, Assumptions, and Recommendations | ✅ 5 |
 
 ---
 
@@ -1092,6 +1091,83 @@ A **web** console (not mobile) for the **System Administrator / CEO / Tester** s
 
 ---
 
-> **⏸ End of Installment 4 (sections 23–28).**
-> **Next — Installment 5 (final, sections 29–30):** Recommended Technology Stack; Risks, Assumptions & Recommendations — plus a phased delivery roadmap and the explicit list of decisions I need from you.
-> Numbering and continuity preserved; nothing above is renumbered.
+# 29. Recommended Technology Stack
+
+Chosen for **Google‑native fit, one team/one codebase, and maximum reuse of the existing CRM** (so we extend proven business logic instead of rebuilding it).
+
+| Layer | Recommendation | Why |
+|---|---|---|
+| **Mobile (both apps)** | **Flutter (Dart)** | Single codebase → Company + Client apps; Google's own framework; excellent camera/QR, offline, push; Android‑first (your "Google applications") + iOS‑ready at no extra codebase |
+| **Auth** | **Firebase Auth + Google Identity**, App Check, MFA | Managed OAuth/OIDC, Workspace SSO for staff, OTP for customers (reuse CRM OTP), device attestation |
+| **Real‑time** | **Firestore** + Firebase SDK | Chat, presence, typing, read‑receipts, offline sync out of the box |
+| **APIs / BFFs** | **Cloud Run** hosting **FastAPI (Python)** | **Reuse the CRM's Python services** (leads, stages, gates, RBAC, audit, documents); autoscaling, containerized already |
+| **System of record** | **Cloud SQL for PostgreSQL** | Reuse & extend the CRM schema; strong consistency for money/parts/audit; HA + replicas |
+| **Files** | **Cloud Storage** | Signed URLs, lifecycle, CMEK, virus scan hook |
+| **Events/async** | **Pub/Sub + Cloud Functions** | Decoupled hand‑off fan‑out, spike absorption |
+| **Push / Email / SMS** | **FCM** / Workspace‑SMTP / pluggable SMS | Reuse CRM notification + OTP patterns |
+| **Analytics** | **BigQuery + Looker Studio** | Dashboards, daily summaries, traceability queries |
+| **Maps** | **Google Maps Platform** | Site geolocation, dispatch |
+| **Specialized render** | **Cloud Run jobs** | Label/QR service (your Label Generator plugs in), PDF, DWG→preview |
+| **Security/edge** | **API Gateway + Cloud Armor**, Secret Manager, Cloud KMS, Security Command Center | WAF/DDoS/rate‑limit, secrets, keys, posture |
+| **IaC / CI‑CD** | **Terraform + Cloud Build + Artifact Registry** (+ Binary Authorization) | Reproducible, policy‑gated, signed images |
+| **Observability** | **Cloud Logging/Monitoring/Trace** | SLOs, alerting, tracing |
+
+**Alternative considered:** React Native (rejected — Flutter is more Google‑aligned and gives better single‑codebase camera/offline). Full‑Firestore‑only backend (rejected — financial/traceability data needs relational integrity + we already own a PostgreSQL domain model). Rebuild services in Node (rejected — throws away the working, tested Python CRM logic).
+
+**Reuse ledger (what we carry over from the web CRM):** the PostgreSQL schema + migrations, the RBAC/Module‑7 permission engine, the audit module (extended to hash‑chain), the Meta/Excel lead importer, the document/object‑storage pattern, the OTP flow, the notification/SMTP sender, the stage/gate state machine, the Label Generator slot, and the calm brand design language.
+
+---
+
+# 30. Risks, Assumptions, and Recommendations
+
+### 30.1 Explicit assumptions (please confirm/correct)
+1. **"Google applications" = Play‑Store Flutter apps on Firebase/GCP** (iOS optional later). If you meant *Google Workspace Add‑ons/Apps Script apps*, the architecture changes materially — **confirm**.
+2. **Payment gateway is TBD** (Razorpay/PayU/Cashfree/UPI). Gateway choice affects §16 specifics.
+3. **3rd‑party fitting vendors are not first‑class app users in v1** (managed by the Site Manager). Optional lightweight OTP‑link vendor access later.
+4. **Customers authenticate** (phone/email OTP) — the customer becomes a real app user, unlike the web CRM where a lead is just a record.
+5. **Estimate pricing logic comes later** from your structured Excel; the engine is built pluggable to receive it.
+6. **RPO ≤ 5 min / RTO ≤ 1 hr** are proposed targets, not yet ratified by you.
+7. **Single region (India) primary** with cross‑region DR copies; data residency in India.
+
+### 30.2 Conflicts with the web CRM (resolved in favor of your new instructions, per your directive)
+- **Roles:** the CRM's `manager/sales/designer/supervisor` become PM/SE/DES/SM; we **add Marketing Head and Production Engineer**, and model the two superset relationships. (Custom‑role engine already supports adding these.)
+- **Site Measurement stage (5):** the new flow de‑emphasizes it; recommendation is to keep it **optional/non‑gating** (see §6 note) — **your call** to keep or drop.
+- **Chat, QR full lifecycle, Client App, online payments** are **new** beyond the current CRM and are the bulk of the build.
+- **Customer identity:** new (customers log in). 
+
+### 30.3 Key risks & mitigations
+| Risk | Impact | Mitigation |
+|---|---|---|
+| **Invisible‑MH leak** (roster/receipt/presence) | Trust/legal | Server‑side hidden‑member exclusion everywhere + Firestore rules; pen‑test this specifically (§12.2, §21.3) |
+| **Cross‑boundary data leak** (customer sees internal) | Severe | Dual BFF, row‑scoping, DLP on shared files (§8, §20) |
+| **Payment tampering/fraud** | Financial | Server‑authoritative amounts, signed idempotent webhooks, PCI‑offloaded gateway (§16) |
+| **QR forgery / faked progress** | Ops integrity | Signed QR payloads, role+station validation, evidence, audit (§14.7) |
+| **Scope creep** (30 modules at once) | Delivery risk | Strict phasing (below); ship parity first, then new modules |
+| **Play/App‑store rejection** | Launch delay | Early data‑safety/privacy compliance, permission minimization (§27.4) |
+| **Offline factory/site connectivity** | Data loss | Offline‑first clients, queued scans/writes, idempotency (§23/§24) |
+| **DLP on customer‑shared design files** | Leak | Re‑render previews, strip metadata, visibility=customer gating (§13) |
+
+### 30.4 Recommended phased roadmap
+- **P0 — Foundation (parity):** GCP landing zone + security baseline; Auth/MFA/RBAC (port CRM); Lead intake (Excel import) + distribution (MH→PM→SE) + CRM/lead handling parity; Projects board. *Value: the web CRM's core, now mobile + Marketing‑Head hierarchy.*
+- **P1 — Commercialize:** Estimate engine (pluggable) + approval; **Chat** (1:1 → group, invisible MH); **Booking payment** + activation + group conversion. *Value: the sales→booking pivot fully digital.*
+- **P2 — Deliver:** Design collaboration + approval; **Production + Cut List + Part IDs + QR + scans + QC + factory checklist + dispatch**. *Value: the manufacturing traceability spine.*
+- **P3 — Install & close:** Site console, load/unload reconciliation, tickets (photos), site expenses/approval, installation & completion checklists, after‑sales; Client App polish. *Value: closed loop end‑to‑end.*
+- **P4 — Scale & harden:** BigQuery analytics + daily summaries; escalations; DR drills; pen‑test; performance/load; store launch.
+
+### 30.5 Decisions I need from you to proceed to detailed design/build
+1. Confirm **assumption #1** (Flutter/Firebase mobile apps) — this unblocks everything.
+2. **Payment gateway** preference (and do you want auto‑activation on verified webhook, or a manual PM verify step?).
+3. **Site Measurement stage** — keep (optional) or remove from the mobile flow?
+4. **Vendor access** — SM‑managed only (v1) or lightweight vendor app/OTP link?
+5. **RPO/RTO** targets — accept the proposed ≤5 min / ≤1 hr, or state yours?
+6. When ready: the **estimate Excel** (pricing) and your **Label Generator** code — to wire the two pluggable engines.
+
+Answer these and I'll proceed to the next layer (detailed data schemas, API contracts, Firestore security rules, and a build‑ready backlog) — and, when you say go, start implementation phase P0.
+
+---
+
+## Document status
+
+**Sections 1–30 complete** across 5 installments (this file). This is the **design/architecture deliverable** you asked for (explicitly *not* implementation yet). Building the two apps will proceed in phases (§30.4) once the §30.5 decisions are confirmed — and, as you noted, will span multiple build cycles, which the phasing is designed to absorb.
+
+*Prepared as: Enterprise Solution / Google Cloud / Mobile / Cybersecurity / Database / UX Architect & Business Process Consultant. Deviations from the existing web CRM were resolved in favor of the instructions in this brief, per your directive.*
