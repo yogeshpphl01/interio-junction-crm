@@ -299,7 +299,7 @@ The company‑side chain, expressed as the **project state machine** (reusing th
 | 10 | **Installation** *(sub‑stage of 9→closure)* | SM | Parts dispatched | Load/unload checklist, installation, tickets, bills, **completion checklist** |
 | 11 | **Closure / After‑sales** | PM | Installation checklist signed | Sign‑off, warranty, after‑sales tickets |
 
-> ⚠ **Deviation/decision:** Your new flow does not emphasize a separate *Site Measurement* stage (5) and instead surfaces the Site Manager at installation. The CRM has stage 5 = Site Measurement. **Recommendation:** keep stage 5 as an *optional* measurement checkpoint (many modular jobs still need it) but do **not** gate Booking→Design on it. If you want it removed entirely from the mobile flow, that is a one‑line stage‑map change — flagged in §30 for your decision.
+> ✅ **Decided:** the **Site Measurement stage (5) is kept in the mobile application** (confirmed by the business owner). It remains a real checkpoint after Booking and before Design; a measurement sheet is captured there (reusing the web CRM's measurement model). We do **not** hard‑gate Booking→Design on it (so a job can proceed if measurement is scheduled), but it is a visible, first‑class stage on both the internal board and the customer timeline.
 
 **Internal hand‑off events (each fires notifications + audit + real‑time sync):**
 1. `lead.assigned` (MH→PM→SE) 2. `estimate.submitted` (SE→PM) 3. `estimate.approved` (PM→SE) 4. `payment.received` (Sys→PM, **the pivot**) 5. `group.created` (PM) 6. `design.finalized` (DES→PE, customer‑approved) 7. `cutlist.published` (PE) 8. `part.scanned` (PE/floor, many) 9. `checklist.factory.passed` (PE→SM) 10. `dispatch.created` (PE→SM) 11. `unload.verified` (SM) 12. `ticket.raised` (SM→PE) 13. `ticket.resolved` (PE→SM) 14. `expense.submitted`/`expense.approved` (SM→PM) 15. `project.closed` (PM).
@@ -714,7 +714,7 @@ stateDiagram-v2
 
 The **10% booking payment is the system pivot** (activates project, converts chat to group, unlocks design). Payments are handled by a dedicated service with a certified gateway — **never** by storing card data ourselves.
 
-**16.1 Gateway.** Integrate an India‑first PCI‑DSS‑certified gateway (Razorpay/PayU/Cashfree) or Google Pay UPI. We store only **tokens/refs**, never PAN/CVV. (⚠ Assumption: gateway TBD — §30.)
+**16.1 Gateway — decided.** **Interim (now): manual Business UPI.** The customer pays the 10% to the company's Business UPI ID/QR from any UPI app; the Sales Executive/PM **records the payment (amount + UPI reference + screenshot) and marks it *verified*** in the Company App — which fires the same `payment.received` event that activates the project and converts the chat to a group. **Later: Razorpay** — a full, security‑reviewed integration is written and kept **commented‑out** in [`payments/razorpay_booking.reference.py`](payments/razorpay_booking.reference.py); it activates only when credentials exist. Crucially, **both paths converge on one `on_payment_received()` activation function**, so the manual and gateway flows are identical downstream — swapping later changes only *who* marks the payment verified (a human vs. a signed webhook). We never store card data (Razorpay is PCI‑DSS; we keep only order/payment refs).
 
 **16.2 Booking flow (idempotent, webhook‑verified).**
 ```mermaid
@@ -1122,7 +1122,7 @@ Chosen for **Google‑native fit, one team/one codebase, and maximum reuse of th
 
 ### 30.1 Explicit assumptions (please confirm/correct)
 1. **"Google applications" = Play‑Store Flutter apps on Firebase/GCP** (iOS optional later). If you meant *Google Workspace Add‑ons/Apps Script apps*, the architecture changes materially — **confirm**.
-2. **Payment gateway is TBD** (Razorpay/PayU/Cashfree/UPI). Gateway choice affects §16 specifics.
+2. **Payments: manual Business UPI now, Razorpay later** (decided — §16.1). Razorpay reference kept commented‑out until credentials exist.
 3. **3rd‑party fitting vendors are not first‑class app users in v1** (managed by the Site Manager). Optional lightweight OTP‑link vendor access later.
 4. **Customers authenticate** (phone/email OTP) — the customer becomes a real app user, unlike the web CRM where a lead is just a record.
 5. **Estimate pricing logic comes later** from your structured Excel; the engine is built pluggable to receive it.
@@ -1154,15 +1154,18 @@ Chosen for **Google‑native fit, one team/one codebase, and maximum reuse of th
 - **P3 — Install & close:** Site console, load/unload reconciliation, tickets (photos), site expenses/approval, installation & completion checklists, after‑sales; Client App polish. *Value: closed loop end‑to‑end.*
 - **P4 — Scale & harden:** BigQuery analytics + daily summaries; escalations; DR drills; pen‑test; performance/load; store launch.
 
-### 30.5 Decisions I need from you to proceed to detailed design/build
-1. Confirm **assumption #1** (Flutter/Firebase mobile apps) — this unblocks everything.
-2. **Payment gateway** preference (and do you want auto‑activation on verified webhook, or a manual PM verify step?).
-3. **Site Measurement stage** — keep (optional) or remove from the mobile flow?
-4. **Vendor access** — SM‑managed only (v1) or lightweight vendor app/OTP link?
-5. **RPO/RTO** targets — accept the proposed ≤5 min / ≤1 hr, or state yours?
-6. When ready: the **estimate Excel** (pricing) and your **Label Generator** code — to wire the two pluggable engines.
+### 30.5 Decisions — status (owner responses recorded)
+1. **Platform:** proceeding with **Flutter + Firebase/GCP mobile apps** (owner asked for a DB right‑sizing recommendation instead of contesting the platform — see §30.6). ✅
+2. **Payments:** **manual Business UPI now**, **Razorpay later** (pseudocode ready & commented — §16.1, `payments/razorpay_booking.reference.py`). Activation is via an in‑app **verify** action now / signed webhook later, both → one `on_payment_received()`. ✅
+3. **Site Measurement stage:** **kept** in the mobile app (§6). ✅
+4. **3rd‑party vendors:** deferred — handled later during app development (Site‑Manager‑managed for now). ✅
+5. **RPO/RTO:** explained to owner; recommended target for current scale = **RPO ≤ 15 min, RTO ≤ 4 hr** (relaxed from the enterprise ≤5 min/≤1 hr to cut cost at 20 customers/month; tighten as you grow). Pending final ratification. 🟡
+6. **Estimate Excel + Label Generator code:** owner will provide when ready; engines built pluggable to receive them. ✅
 
-Answer these and I'll proceed to the next layer (detailed data schemas, API contracts, Firestore security rules, and a build‑ready backlog) — and, when you say go, start implementation phase P0.
+### 30.6 Database right‑sizing at current volume (20 customers/month)
+At ~20 booked customers/month (~240/yr), **data volume is trivial** — the decision is managed‑convenience + real‑time/push, not capacity. Estimated growth: **Cloud SQL ~1–2 GB/yr**, **Firestore ~150–200k chat docs/yr (near‑free tier)**, **Cloud Storage ~150 GB/yr (files dominate cost)**. **Recommendation:** keep the designed stack but **right‑size small** — smallest Cloud SQL PostgreSQL tier, **single‑zone (no HA) to start**, 20 GB SSD; Firestore Native pay‑as‑you‑go; GCS Standard + Nearline lifecycle at 90 days; Cloud Run min‑instances 0–1. Est. **~$40–90/month** total on GCP. Add HA + a bigger tier + read replica when you cross ~100 customers/month — **the architecture never changes, only instance sizes/flags.** (Full reasoning delivered to owner in chat.)
+
+**Next:** on your go I proceed to detailed data schemas, API contracts, Firestore security rules and a build‑ready backlog, and start implementation phase **P0** (the backend groundwork is buildable in this repo now; the Flutter apps need a separate Firebase/GCP project).
 
 ---
 
