@@ -810,6 +810,171 @@ graph TD
 
 ---
 
-> **⏸ End of Installment 2 (sections 13–18).**
-> **Next — Installment 3 (sections 19–22):** Notification Architecture, Security Architecture, Cybersecurity Threat Model & Mitigations, Google Cloud Architecture.
+# 19. Notification Architecture
+
+Notifications are how the "everyone relevant is kept in sync" requirement (Rules 3 & 4, every hand‑off event) is actually felt by users. Design goal: **the right person, on the right channel, for the right event — with role‑scoping and escalation — and never a leak** (e.g., the invisible MH's oversight pings must not be visible to the group).
+
+**19.1 Channels.** **Push (FCM)** primary for mobile; **in‑app** notification center (persisted, read/unread); **email** (transactional — reuse the CRM's SMTP or Google Workspace) for approvals/receipts/summaries; **SMS** for high‑value/critical or when push is undelivered (pluggable, mirrors the CRM's deferred‑SMS design). 
+
+**19.2 Event → notification fan‑out.**
+```mermaid
+graph LR
+  EV[Domain event on Pub/Sub] --> NS[Notification Service]
+  NS --> RES[Resolve recipients by RBAC + project membership + preferences]
+  RES --> DEDUP[Dedup + rate-limit + quiet-hours]
+  DEDUP --> FCM[FCM push]
+  DEDUP --> INAPP[(In-app store)]
+  DEDUP --> EMAIL[Email]
+  DEDUP --> SMS[SMS - critical]
+  NS --> ESC[Escalation timers]
+```
+The Notification Service subscribes to every domain topic (§6), **resolves recipients from the RBAC/membership model** (so a customer never gets an internal QC‑fail ping; the trio always gets production events; the MH gets a **private** oversight ping), applies **preferences, dedup, rate‑limit and quiet hours**, then dispatches per channel.
+
+**19.3 Role‑based alert examples.**
+| Event | SE | PM | DES | PE | SM | MH | Customer |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| `estimate.submitted` | — | 🔔 approve | — | — | — | 🔕 silent | — |
+| `payment.received` | 🔔 | 🔔 | 🔔 | 🔔 | 🔔 | 🔕 | 🔔 receipt |
+| `design.finalized` | — | 🔔 | 🔔 | 🔔 | — | 🔕 | 🔔 |
+| `qc.failed` | — | 🔔 | 🔔 | 🔔 | 🔔 | 🔕 | — |
+| `dispatch.created` | — | 🔔 | — | 🔔 | 🔔 | 🔕 | 🔔 |
+| `ticket.raised` | — | 🔔 | 🔔 | 🔔 | 🔔 | 🔕 | (coarse) |
+| new chat message | members | members | members | members | members | 🔕 private | member |
+
+(🔕 = MH's **private** oversight stream, never a group‑visible push.)
+
+**19.4 Escalation & digests.** Unactioned approvals/tickets escalate up the hierarchy on timers (SE→PM→MH) — reuses the CRM's SLA/escalation automation concept. **Daily summary** per role (your requirement) generated from BigQuery and delivered by push/email each morning. All escalations audited.
+
+**19.5 Delivery guarantees.** At‑least‑once via Pub/Sub; in‑app store is the durable record (push is best‑effort); read‑state synced; token lifecycle managed (stale FCM tokens pruned).
+
+---
+
+# 20. Security Architecture
+
+Designed to **Google security best practices + OWASP + least privilege**, defense‑in‑depth across device, network, identity, application, data and operations. Security is enforced **server‑side and in depth** — client/Firestore rules are a second layer, never the only one.
+
+**20.1 Identity & authentication.**
+- **Google Identity / Firebase Auth** with **OAuth 2.0 / OIDC**; employees via Google Workspace SSO (company‑managed identities); customers via phone/email + OTP (reuse the CRM's OTP flow) or Google Sign‑In.
+- **MFA mandatory** for privileged roles (MH, PM, System Admin) and available to all; step‑up auth for sensitive actions (refunds, role changes, break‑glass).
+- **Session management:** short‑lived access tokens + rotating refresh; device binding; remote session revocation; forced re‑auth on role change; idle & absolute timeouts.
+- **Firebase App Check** attests that requests come from genuine, untampered app builds (blocks scripted API abuse).
+
+**20.2 Authorization (RBAC + least privilege).** Central permission service (§4) checks a required key **and** applies **row‑level scoping** on every request; superset roles modeled by key inheritance; **custom roles** (Module 7) for new titles; every service runs under a **least‑privilege service account**; no ambient trust between services (mTLS / signed service identity).
+
+**20.3 Data protection.**
+- **In transit:** TLS 1.2+ everywhere; HSTS; cert pinning in the mobile apps for the API domain.
+- **At rest:** Google default encryption; **CMEK** for sensitive stores (payments, PII, chat); field‑level encryption for the most sensitive PII.
+- **Secrets** in **Secret Manager** (no secrets in code/images — the CRM already keeps JWT/SMTP/keys in env/secrets); automatic rotation.
+- **Key management** via Cloud KMS.
+
+**20.4 Application security (OWASP Top 10).** Input validation + output encoding (XSS); parameterized queries/ORM (SQLi — the CRM already uses parameterized asyncpg); anti‑CSRF tokens + SameSite cookies; **SSRF** egress allow‑lists on services that fetch URLs; strict schema validation rejecting unknown fields (mass‑assignment/over‑posting); secure file handling (§13); authz checks on **every** object access (IDOR prevention via row‑scoping).
+
+**20.5 File & content security.** MIME allow‑list, size caps, **malware scanning**, signed short‑lived URLs, no public buckets, content‑disposition/no‑sniff, re‑render of customer‑shared design previews, image EXIF/metadata stripping.
+
+**20.6 API edge.** **API Gateway + Cloud Armor (WAF)**: OWASP rule set, **rate limiting & quotas** per user/IP/endpoint, geo/IP allow‑lists for admin, bot/DDoS protection, request size limits, **idempotency** on mutations.
+
+**20.7 Audit & tamper‑evidence.** Immutable, append‑only **audit log** (extends the CRM's audit module) for every privileged/financial/role/data action — including **MH oversight reads**; **hash‑chained** entries (each row includes a hash of the previous) so tampering is detectable; audit stored write‑once (WORM/retention‑locked) and exported to BigQuery + a separate security project.
+
+**20.8 Privacy & compliance (GDPR‑ready + India DPDP).** Data minimization; per‑customer **export & delete** (right to erasure) with legal‑hold override; consent capture; PII inventory & data‑map; regional data residency (India region); DPA with sub‑processors (gateway, SMS).
+
+**20.9 Secure SDLC & operations.** IaC (Terraform) with policy‑as‑code; SAST/DAST + dependency/container scanning in CI; secret scanning; signed container images + binary authorization; least‑privilege CI/CD; pen‑testing before launch; **Security Command Center** for posture; centralized logging + alerting; incident‑response runbook.
+
+---
+
+# 21. Cybersecurity Threat Model & Mitigations
+
+Method: **STRIDE per trust boundary** + explicit coverage of your listed threats. Trust boundaries: Device↔Edge, Edge↔Services, Service↔Data, Company↔Client, Employee↔Employee (privilege), Us↔3rd‑party (gateway/SMS/vendor).
+
+**21.1 STRIDE summary.**
+| Threat class | Example against this system | Primary mitigations |
+|---|---|---|
+| **Spoofing** | Fake client hitting APIs; forged QR; spoofed payment webhook | App Check + OAuth/MFA; **signed QR HMAC**; signature‑verified webhooks |
+| **Tampering** | Client alters price/amount/stage; edits audit | Server‑authoritative amounts/stages; input schema validation; **hash‑chained WORM audit** |
+| **Repudiation** | "I never approved this estimate/expense" | Signed, timestamped, device‑bound audit; e‑signatures on checklists |
+| **Information disclosure** | Customer sees BOQ/margins; **MH unmasked**; IDOR to other projects | **Dual BFF** + row‑scoping; hidden‑member exclusion everywhere (§12.2); object‑level IAM |
+| **Denial of service** | API flood; large‑file upload abuse; scan spam | Cloud Armor + rate limits/quotas; upload size caps; idempotent scans |
+| **Elevation of privilege** | SE acts as PM; PE deletes users; role tamper | Central RBAC least‑privilege; step‑up auth; role changes audited + admin‑only |
+
+**21.2 Your named threats — explicit mitigations.**
+- **SQL Injection:** parameterized queries/ORM only; no string‑built SQL (CRM pattern); WAF backstop.
+- **XSS:** contextual output encoding; CSP in any webviews; sanitized rich text; no‑sniff on files.
+- **CSRF:** token + SameSite; state‑changing ops require bearer token (not cookie‑only).
+- **SSRF:** egress allow‑lists; metadata‑endpoint blocking; validate/deny internal URLs in any fetch.
+- **File‑upload attacks:** allow‑list MIME + magic‑byte check, size caps, malware scan, non‑executable storage, signed‑URL only, re‑render previews.
+- **Brute force:** OTP/login rate‑limit + lockout (CRM already locks OTP after 5 tries), exponential backoff, CAPTCHA on abuse, MFA.
+- **Ransomware:** immutable/versioned backups, least‑privilege service accounts, no broad write IAM, offline/again‑restore DR copies, malware scanning, EDR on any admin workstations.
+- **Insider threats:** least privilege + separation of duties (SE submits/PM approves; SM submits bill/PM approves); **all** privileged reads incl. MH oversight audited; anomaly alerts; break‑glass with review.
+- **Privilege escalation:** deny‑by‑default RBAC; server‑side checks on every call; no client‑trusted roles; role/permission changes require System Admin + audit.
+- **DDoS:** Cloud Armor, autoscaling with caps, rate limits, Google edge absorption.
+- **API abuse:** App Check, quotas, idempotency, per‑endpoint limits, abnormal‑usage alerting.
+
+**21.3 Abuse cases specific to the business.**
+- **Estimate/discount manipulation** → server‑capped discounts by role, PM/MH approval beyond caps, versioned + audited.
+- **QR forgery / progress faking** → signed payloads, role + station‑sequence validation, GPS/photo evidence, audit.
+- **Payment amount tampering** → amount derived server‑side from accepted estimate; webhook signature + idempotency.
+- **Cross‑project data access (IDOR)** → every fetch scoped by membership; deny if not a member (or hidden‑MH oversight).
+- **Chat exfiltration / customer sees internal** → dual BFF; customer principal can never join internal/Plane‑B channels; DLP scan on customer‑shared attachments.
+- **Unmasking the Marketing Head** → roster/presence/receipts never include hidden members; enforced server‑side + Firestore rules; a tampered client still receives a roster that simply never contained MH.
+
+**21.4 Detection & response.** Central SIEM (Cloud Logging → Security Command Center/Chronicle); alerts on: repeated authz denials, mass downloads, off‑hours privileged access, discount/refund spikes, geo anomalies. IR runbook with severity tiers, on‑call, forensic log preservation (WORM), and customer‑breach notification process (regulatory clocks).
+
+---
+
+# 22. Google Cloud Architecture
+
+A single **Google Cloud Organization** with environment separation and Google‑native managed services end‑to‑end (your "use Google's ecosystem wherever possible" requirement).
+
+**22.1 Landing zone.** Org → Folders (`prod`, `staging`, `dev`, `security`) → per‑env Projects. Central **Shared VPC**; **VPC Service Controls** perimeter around data services to stop exfiltration; org policies (no public IPs by default, require CMEK on sensitive buckets, restrict service‑account key creation).
+
+**22.2 Service placement.**
+| Concern | Google service |
+|---|---|
+| Mobile clients | **Flutter** apps (Play Store first; iOS‑ready) |
+| Auth / Identity / MFA | **Firebase Auth + Google Identity**, App Check |
+| Real‑time chat/presence | **Firestore** (+ Firebase SDK) |
+| System of record (SQL) | **Cloud SQL for PostgreSQL** (HA, read replicas) |
+| Stateless APIs / BFFs | **Cloud Run** (autoscaling; hosts the ported FastAPI services) |
+| Async workers | **Cloud Functions** (+ **Pub/Sub** event bus) |
+| Files/objects | **Cloud Storage** (lifecycle, CMEK, signed URLs) |
+| Push | **Firebase Cloud Messaging (FCM)** |
+| Email | **Workspace/SMTP** (reuse CRM sender) |
+| Analytics/BI | **BigQuery** (+ Looker Studio dashboards) |
+| Maps/site geo | **Google Maps Platform** |
+| Label/PDF/DWG render | **Cloud Run** jobs (Label Service, PDF, CAD thumbnailer) |
+| Secrets / keys | **Secret Manager / Cloud KMS** |
+| Edge security | **API Gateway + Cloud Armor (WAF/DDoS)** |
+| CI/CD | **Cloud Build + Artifact Registry** (+ Binary Authorization) |
+| Observability | **Cloud Logging/Monitoring/Trace**, **Security Command Center** |
+| Data pipeline | **Dataflow/Scheduler** for ETL to BigQuery |
+| Batch/office automation | **Apps Script** for lightweight Workspace glue (e.g., Sheet templates) where appropriate |
+
+**22.3 High‑level cloud topology.**
+```mermaid
+graph TD
+  subgraph Edge
+    LB[Global HTTPS LB + Cloud Armor] --> GWs[API Gateway]
+  end
+  subgraph Run[Cloud Run - Shared VPC]
+    BFFc[Client BFF] --- BFFco[Company BFF]
+    SVCs[Domain Services]
+  end
+  GWs --> BFFc & BFFco --> SVCs
+  SVCs --> SQL[(Cloud SQL - HA + replicas)]
+  SVCs --> GCS[(Cloud Storage - CMEK)]
+  SVCs --> PS[(Pub/Sub)]
+  PS --> CF[Cloud Functions] --> SQL & BQ[(BigQuery)] & FCM[FCM]
+  Clients[Flutter apps] --> Firestore[(Firestore)]
+  SVCs --> Firestore
+  SM[Secret Manager/KMS] -.-> Run
+  SCC[Security Command Center] -.-> Run & SQL & GCS
+```
+
+**22.4 Networking & data protection.** Private service connectivity (no public DB IPs); Cloud SQL private IP + IAM auth; **VPC‑SC** perimeter; egress controls; per‑service least‑privilege SAs; CMEK on payments/PII/chat buckets; audit sink to the isolated `security` project.
+
+**22.5 Environments & release.** dev → staging → prod with identical IaC (Terraform); progressive rollout (Cloud Run revisions + traffic splitting) and feature flags; blue/green for risky changes; automated rollback on SLO breach.
+
+---
+
+> **⏸ End of Installment 3 (sections 19–22).**
+> **Next — Installment 4 (sections 23–28):** Scalability, Disaster Recovery & Backup, UI/UX Navigation, Admin Console, Client App, Company App design.
 > Numbering and continuity preserved; nothing above is renumbered.
