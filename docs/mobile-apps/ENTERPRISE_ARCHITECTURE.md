@@ -975,6 +975,123 @@ graph TD
 
 ---
 
-> **⏸ End of Installment 3 (sections 19–22).**
-> **Next — Installment 4 (sections 23–28):** Scalability, Disaster Recovery & Backup, UI/UX Navigation, Admin Console, Client App, Company App design.
+# 23. Scalability Strategy
+
+Targets: **100 employees, 10,000 customers, 100,000 projects, millions of messages & files.** These are modest for the chosen managed services — the strategy is to lean on Google's horizontal scaling and keep the design stateless and event‑driven.
+
+**23.1 Sizing reality check.** 100k projects × ~hundreds of rows each = low‑tens‑of‑millions of relational rows — comfortable for a single well‑indexed **Cloud SQL** primary + read replicas (not "big data"). Millions of chat messages/files fit **Firestore** (scales to billions of docs) and **Cloud Storage** (effectively unlimited) natively. So the bottlenecks are **hot paths and fan‑out**, not raw volume.
+
+**23.2 Compute.** **Cloud Run** autoscales per‑service on concurrency (0→N), so sales, production and chat‑write traffic scale independently; **min instances** on latency‑critical services to avoid cold starts. Stateless services → trivial horizontal scaling; no sticky sessions (JWT).
+
+**23.3 Data tier.** Cloud SQL: **read replicas** for analytics/read‑heavy endpoints; connection pooling (PgBouncer/Cloud SQL connector — the CRM already pools); careful indexing on hot filters (project_id, stage, assignee, part_uid, ts); partition the append‑only heavy tables (`part_scans`, `audit_log`, `notifications`) by month. If a single primary is ever outgrown, shard by `project_id`/tenant — but that's far beyond the stated scale.
+
+**23.4 Real‑time tier.** Firestore auto‑scales; design keys to avoid hotspots (no monotonically‑increasing single‑doc counters; shard counters if needed); paginate message history; cap group fan‑out with server‑side batching.
+
+**23.5 Async & spikes.** Pub/Sub absorbs bursts (Excel import of thousands of leads, mass scans at shift change, notification storms) and lets workers drain at their own rate — protecting the DB from thundering herds.
+
+**23.6 Caching & cost.** Cache RBAC/role and meta lookups (in‑memory per instance, like the CRM's permission cache; Memorystore/Redis if cross‑instance needed); CDN for static/design‑preview assets; GCS storage classes tiered by age (§13.7); BigQuery for heavy analytics so the OLTP DB stays lean.
+
+**23.7 Performance budgets.** p95 API < 300 ms; chat delivery < 1 s; scan ack < 500 ms; push < a few seconds. Load‑test to 5× target before launch.
+
+---
+
+# 24. Disaster Recovery & Backup Plan
+
+**Objectives:** **RPO ≤ 5 min**, **RTO ≤ 1 hour** for the core transactional system (tunable per your risk appetite; stated as a design target — §30).
+
+**24.1 Backups.**
+| Store | Backup method | Retention |
+|---|---|---|
+| Cloud SQL | Automated daily backups + **PITR** (WAL) | 35 days PITR, monthly archives 1yr+ |
+| Firestore | Scheduled managed exports to GCS | 30 days |
+| Cloud Storage (files) | **Object versioning** + cross‑region replication | versions 90d; DR copy retained |
+| Audit log | WORM/retention‑locked bucket + BigQuery | 7 years (compliance) |
+| Config/IaC | Git + Terraform state (versioned, locked) | full history |
+
+**24.2 High availability.** Cloud SQL **regional HA** (synchronous standby, automatic failover); Cloud Run & Firestore are multi‑zone by default; multi‑zone within the primary region; **cross‑region DR** copies of backups + IaC to stand up the stack elsewhere.
+
+**24.3 DR strategy.** Warm‑standby: primary region active; DR region holds replicated backups + deployable IaC. On regional failure: restore Cloud SQL from cross‑region backup/replica, redeploy Cloud Run from Artifact Registry via Terraform, repoint DNS. **Immutable, offline‑restorable backups** are the ransomware safety net (§21).
+
+**24.4 Testing.** Quarterly **restore drills** (prove backups actually restore), documented failover runbooks, game‑days; backup‑success monitoring with alerts; annual full DR exercise. A backup that hasn't been test‑restored is not a backup.
+
+**24.5 Graceful degradation.** If chat (Firestore) is down, core transactions continue; if a gateway is down, booking queues; if a service is degraded, feature flags shed non‑critical load. Clients are offline‑capable (queue writes, sync later) — vital for factory dead zones and site locations.
+
+---
+
+# 25. UI/UX Navigation Structure
+
+Two apps, two information architectures, **role‑adaptive** within the Company App (the same app renders different tabs per role — like the web CRM's permission‑filtered nav).
+
+**25.1 Company App (role‑adaptive bottom nav + contextual screens).**
+```
+Home (role dashboard)  |  Projects  |  Chats  |  Tasks/Approvals  |  More
+```
+- **Marketing Head:** Home (company KPIs) · **Leads/Import** · Projects (all, silent) · Chats (+ oversight) · Approvals · Analytics.
+- **Project Manager:** Home (my projects) · Leads (assign) · **Projects (board)** · Chats · **Approvals (estimates/expenses)** · Team.
+- **Sales Executive:** Home (my leads) · **Leads/CRM** · **Create Estimate** · Chats (customers) · Payments.
+- **Designer:** Home (assigned) · **Design workspace** · Chats · Files.
+- **Production Engineer:** Home (production queue) · **Factory floor / Scanner** · Cut lists · Chats · Checklists.
+- **Site Manager:** Home (site tasks) · **Site console (checklists/scan)** · **Tickets** · **Expenses** · Chats.
+
+**25.2 Client App (simple, reassuring, 4 tabs).**
+```
+My Project (timeline)  |  Chat  |  Estimates & Payments  |  Designs & Files
+```
+Progressive disclosure: pre‑booking shows only *Chat + Estimate/Pay*; post‑booking unlocks the full project timeline, group chat and design review.
+
+**25.3 Cross‑cutting UX.** Global search; notification center; offline indicators + queued‑action badges; large tap targets & camera‑first flows for factory/site (scanning, photos) — often one‑handed, gloved, poor‑light contexts; accessibility (contrast, font scaling, screen‑reader labels — reuse the web CRM's calm "bone/clay" design language for brand continuity). Localization‑ready (English + regional languages).
+
+**25.4 Key flows get dedicated wizards.** Create Estimate, Book/Pay, Convert‑to‑Group, Publish Cut List, Scan‑to‑advance, Raise Ticket, Complete Checklist — each a guided, few‑step flow with clear confirmation and undo where safe.
+
+---
+
+# 26. Admin Console Design
+
+A **web** console (not mobile) for the **System Administrator / CEO / Tester** super‑accounts — high‑privilege, low‑frequency operations best on a larger screen. Extends the web CRM's Settings/Module‑7 UI.
+
+**26.1 Capabilities.** User & employee lifecycle (create/deactivate/hierarchy `reports_to`); **role & permission catalog** (create custom roles, edit permission sets — Module 7); org/tenant config; integration config (payment gateway, SMS, Maps, FCM keys — via Secret Manager, never shown in plaintext); **audit log explorer** (search/filter/export, incl. MH‑oversight entries); security dashboards (SCC posture, failed‑auth, anomalies); data governance (export/delete for GDPR/DPDP, legal holds); feature flags; **break‑glass** access with mandatory reason + review.
+
+**26.2 Guardrails.** MFA + step‑up for every sensitive action; the CEO/Tester super‑accounts are protected (can't be deleted — as already built); all admin actions audited; separation of duties (an admin can't approve their own break‑glass); IP/geo allow‑list for the console; session recording for privileged sessions (optional).
+
+---
+
+# 27. Client Application Design
+
+**Goal:** build **trust and momentum** — a homeowner spending lakhs wants clarity, proof of progress, and easy payment. Minimal, elegant, zero jargon.
+
+**27.1 Onboarding & auth.** Phone/email + OTP (reuse CRM OTP); optional Google Sign‑In; the customer's **phone & email are their identity keys**. A customer only exists in the app once a Sales Executive engages their lead.
+
+**27.2 Screens.**
+- **My Project timeline:** the customer‑friendly milestone track (§5) with friendly labels, ETA, and a coarse production progress bar (never part‑level internals).
+- **Chat:** pre‑booking = 1:1 with the Sales Executive; post‑booking = the project group (team visible, **MH never visible**), with images/video/**voice notes**, replies, read receipts, file preview.
+- **Estimates & Payments:** view estimate PDF (customer‑safe columns only), **Accept**, pay the **10% booking** (and later milestones), receipts, payment history.
+- **Designs & Files:** review shared 2D/3D (image/PDF; DWG shown as rendered preview), **Approve final design**, download shared files.
+- **Support/After‑sales:** raise a post‑install request (routes to PM), FAQ, warranty.
+
+**27.3 Trust & safety.** No internal data ever reachable (dual BFF); clear payment security cues; content moderation/report on chat; privacy controls (export/delete my data); push consent.
+
+**27.4 Play/App Store compliance.** Clear data‑safety disclosure, privacy policy, permission justifications (camera for design photos, notifications), no restricted permissions, age/consent handling, in‑app‑purchase rules respected (payments are for services, via gateway — not digital goods).
+
+---
+
+# 28. Company Application Design
+
+**Goal:** a fast, role‑aware operations tool that works in offices, factories and sites. Same Flutter codebase, **one app whose surface is shaped by the user's role** (permission‑filtered, like the web CRM's nav).
+
+**28.1 Cross‑role foundations.** Role dashboard on Home; global chat (all planes the user may see); notification center + approvals inbox; offline‑first with sync; camera/scanner as first‑class inputs; deep search across leads/projects/parts/files.
+
+**28.2 Role surfaces (highlights).**
+- **Marketing Head:** Excel **import** (the one exclusive power) + equal split to PMs; company‑wide analytics; **silent** project & chat oversight (a discreet "oversight" section, invisible to others); everything a PM can do.
+- **Project Manager:** the **Projects board** (the split‑out Projects page concept from the web CRM — Booking→Factory); lead assignment (manual + **random equal split**); **approvals** (estimate, expense); **create project group + add members** (the DM→group conversion action); full project & communication visibility for owned projects.
+- **Sales Executive:** lead/CRM parity with the web app (this is the "look into the current CRM architecture — we need the same" requirement); **Create Estimate** wizard; submit‑for‑approval; share; collect booking; then hand into design. Customer chat begins here.
+- **Designer:** design workspace (upload/version DWG/PDF/JPG/PNG, share to customer, revisions, mark final); design chat.
+- **Production Engineer:** **factory floor console** — production queue, **QR scanner**, cut‑list publish, Part‑ID/QR generation, QC pass/fail, packing, **factory final checklist**, dispatch; live sync with Designer & Site Manager.
+- **Site Manager:** **site console** — unload reconciliation (scan vs loaded manifest), installation checklist, **raise tickets (photos)**, **site bill capture → PM approval**, vendor coordination, completion checklist & sign‑off.
+
+**28.3 Consistency.** Shared component library, the brand design language, consistent stage/status vocabulary with the web CRM, and the same RBAC keys — so web and mobile stay coherent and a change to a permission applies everywhere.
+
+---
+
+> **⏸ End of Installment 4 (sections 23–28).**
+> **Next — Installment 5 (final, sections 29–30):** Recommended Technology Stack; Risks, Assumptions & Recommendations — plus a phased delivery roadmap and the explicit list of decisions I need from you.
 > Numbering and continuity preserved; nothing above is renumbered.
