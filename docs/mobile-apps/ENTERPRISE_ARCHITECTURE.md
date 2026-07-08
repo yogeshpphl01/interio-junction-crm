@@ -603,6 +603,213 @@ Messages encrypted at rest (Google‑managed keys, optionally CMEK); attachments
 
 ---
 
-> **⏸ End of Installment 1 (sections 1–12).**
-> **Next — Installment 2 (sections 13–18):** File Management, QR Tracking Architecture, Estimate Engine, Payment Workflow, Production Workflow, Installation Workflow.
-> Numbering and continuity are preserved; nothing above will be renumbered.
+# 13. File Management Design
+
+Files are central: chat attachments (image/video/audio), design deliverables (**DWG/PDF/JPG/PNG**), cut lists (PDF), estimate PDFs, checklist photos, ticket media, site bills. Volumes reach **millions of files**, so files are treated as a first‑class, secured subsystem.
+
+**13.1 Storage topology.** Bytes live in **Google Cloud Storage**; **only metadata** lives in Cloud SQL (`files` table: `owner, project_id, kind, mime, size, checksum(sha256), version, visibility, scan_status, gcs_object, created_by`). This mirrors the web CRM's "documents metadata in DB, bytes in object storage" pattern.
+
+**13.2 Upload/download via short‑lived signed URLs (never proxy bytes through the app servers).**
+```mermaid
+sequenceDiagram
+  participant App
+  participant FileSvc as File Service
+  participant GCS
+  participant Scan as Malware Scan (Cloud Fn)
+  App->>FileSvc: POST /files:signed-url (kind, mime, size, project)
+  FileSvc->>FileSvc: RBAC + quota + mime/size policy check
+  FileSvc-->>App: short-lived resumable PUT URL + fileId (status=uploading)
+  App->>GCS: PUT bytes (resumable, client-side)
+  GCS-->>Scan: object.finalize event
+  Scan->>GCS: scan; set status=clean|quarantined
+  Scan->>FileSvc: update metadata (checksum, scan_status)
+  Note over App: download uses signed GET URL only if scan_status=clean & RBAC passes
+```
+
+**13.3 Security controls (expanded in §20/§21).** Enforced MIME allow‑list per context (e.g., Client App chat: images/video/audio/pdf only; Designer: +dwg); **max‑size** & rate limits; **virus/malware scan** on every object before it is downloadable; **content‑disposition + no‑sniff** to defeat file‑upload XSS; **signed URLs** expire in minutes and are single‑purpose (PUT vs GET); **object‑level IAM** so the bucket is never public; **CMEK** encryption option; **image/PDF re‑rendering** (strip metadata/active content) for customer‑shared design previews.
+
+**13.4 Preview.** In‑app preview for images/video/audio/PDF; **DWG** is previewed via a server‑side render‑to‑PDF/PNG thumbnail (CAD engine on Cloud Run) since phones can't open DWG natively — the original DWG remains downloadable for CAD users.
+
+**13.5 Versioning & permissions.** Each re‑upload to the same logical slot creates a new `version` (old versions retained, immutable) — essential for **design revisions** and **estimate versions**. `visibility ∈ {internal, project, customer}` decides who can request a signed URL: e.g., a BOQ PDF is `internal` (customer can never obtain a URL), an approved 3D render is `customer`.
+
+**13.6 Search.** Metadata indexed in Cloud SQL (name, kind, project, uploader, date); full‑text/OCR search (optional) via Document AI → BigQuery for scanned bills/checklists.
+
+**13.7 Lifecycle.** GCS lifecycle rules: hot → nearline (90d) → coldline (1y) for finished projects; legal‑hold overrides; per‑customer export/delete for GDPR (§20).
+
+---
+
+# 14. QR Tracking Architecture
+
+Implements **Rule 4**: every manufactured part has a **Unique Part ID + QR** and a fully traceable lifecycle updated by scanning. This is the bridge between the digital cut list and the physical factory/site — the operational heart of the system.
+
+**14.1 Identity.** When the Production Engineer publishes a cut list, the system generates one **`part_uid`** per part: human‑readable + globally unique, e.g. `IJ-{projectCode}-P-0142`. The QR encodes a **signed** payload (`part_uid` + short HMAC), so a scanned code can be verified as genuinely issued by us (anti‑spoof) without a DB round‑trip to reject fakes.
+
+**14.2 Part state machine (each transition = a scan event).**
+```mermaid
+stateDiagram-v2
+  [*] --> Queued: cutlist.published
+  Queued --> Cutting
+  Cutting --> Edgebanding
+  Edgebanding --> Drilling
+  Drilling --> QC_Part: quality check (part)
+  QC_Part --> Rework: fail
+  Rework --> QC_Part
+  QC_Part --> Assembly: pass
+  Assembly --> QC_Assembly
+  QC_Assembly --> Packed
+  Packed --> Loaded
+  Loaded --> Dispatched
+  Dispatched --> Unloaded: site scan
+  Unloaded --> Installed
+  Installed --> [*]
+  Unloaded --> TicketRaised: damaged/missing
+  Installed --> TicketRaised: fitting error
+  TicketRaised --> Remanufacture --> Queued
+```
+*(Stations are configurable per factory; the diagram is the reference flow.)*
+
+**14.3 Scan event model.** `part_scans(part_id, station, from_stage, to_stage, scanned_by, device_id, ts, gps?, result[pass/fail/na], note, photo_ref?)`. Scans are **append‑only** (immutable history) and **idempotent per (part, station)** so a double‑scan doesn't double‑advance. Offline scans queue on the device and sync when connectivity returns (factories have dead zones).
+
+**14.4 Traceability queries** (BigQuery + Cloud SQL): *where is part IJ‑…‑P‑0142 right now?*, *which parts of Project X are still in Cutting?*, *show every scan of this part with who/when/where*, *reconcile designed vs cut vs packed vs unloaded vs installed counts*. The **reconciliation view** powers the load/unload checklist (§18) and instantly reveals missing parts.
+
+**14.5 Label generation.** A Cloud Run **Label Service** turns the cut list into printable label sheets (part id, QR PNG, project, material, dims) — this is where **your existing "Label Generator" solution plugs in** (the web CRM already reserves this slot). Output: PDF/ZPL for factory label printers.
+
+**14.6 Progress roll‑up.** Part‑level states aggregate to a **project production % complete**, shown to PE/PM in full detail and to the **customer as a coarse "In production" bar** (never part‑level internals). Every scan publishes `production-events` → notifications to the transparent trio (Rule 3) + project timeline.
+
+**14.7 Security.** Signed QR payloads; scan endpoint requires `production.scan_update` + device attestation (App Check); rate‑limited; GPS/photo optional evidence; scans are audited. A stolen phone cannot forge progress (server validates role, station sequence sanity, and HMAC).
+
+---
+
+# 15. Estimate Engine Design
+
+The estimate is the commercial contract seed. You will provide a **structured Excel** later; the architecture makes the pricing engine **pluggable** so we can wire your logic in without redesign — exactly mirroring how the web CRM keeps the Label Generator and SMS sender pluggable.
+
+**15.1 Data model.** `estimates(project/lead_id, version, status, currency, subtotal, discount, tax, total, valid_until, pdf_ref, created_by, approved_by)` + `estimate_items(estimate_id, category, description, unit, qty, rate, amount, meta jsonb)`. **Versioned**: every change spawns a new version; old versions immutable (audit/dispute).
+
+**15.2 Status workflow (approval built in).**
+```mermaid
+stateDiagram-v2
+  [*] --> Draft: SE creates
+  Draft --> Submitted: SE submits
+  Submitted --> Approved: PM/MH approve
+  Submitted --> ChangesRequested: PM rejects with notes
+  ChangesRequested --> Draft
+  Approved --> Shared: SE shares PDF to customer
+  Shared --> Accepted: customer accepts
+  Shared --> Revised: customer negotiates
+  Revised --> Draft
+  Accepted --> [*]: triggers booking payment
+```
+
+**15.3 Pricing engine (pluggable).** A `PricingStrategy` interface: input = structured requirement/BOQ rows (from your Excel schema), output = priced `estimate_items` + totals. v1 = **Excel‑derived rules** (rate cards, area/linear‑ft formulas, unit costs) loaded as versioned **rate‑card** config; v2 (later) could add ML/optimization. Because the interface is fixed, swapping strategies never touches the workflow/UI.
+
+**15.4 Discount, tax, compliance.** Rule‑based discounts (role‑capped: SE up to X%, PM up to Y%, beyond → MH approval); **GST**‑ready tax module (India: CGST/SGST/IGST, HSN codes per item); rounding rules; **Create Estimate** button in the Company App produces a branded **PDF** (Cloud Run PDF service) with T&C and validity.
+
+**15.5 Customer acceptance.** Client App shows the estimate PDF + line summary (customer‑safe view — no internal cost/margin columns) and an **Accept** action that is legally logged (timestamp, device, IP → audit) and immediately opens the **10% booking payment** (§16).
+
+**15.6 Later "Revised Estimate" (stage 8).** After the cut list/BOQ, scope may change; a revised estimate follows the same versioned workflow and, if the delta is material, re‑enters approval and customer acceptance.
+
+---
+
+# 16. Payment Workflow
+
+The **10% booking payment is the system pivot** (activates project, converts chat to group, unlocks design). Payments are handled by a dedicated service with a certified gateway — **never** by storing card data ourselves.
+
+**16.1 Gateway.** Integrate an India‑first PCI‑DSS‑certified gateway (Razorpay/PayU/Cashfree) or Google Pay UPI. We store only **tokens/refs**, never PAN/CVV. (⚠ Assumption: gateway TBD — §30.)
+
+**16.2 Booking flow (idempotent, webhook‑verified).**
+```mermaid
+sequenceDiagram
+  participant C as Customer
+  participant PaySvc as Payment Service
+  participant GW as Payment Gateway
+  participant Bus as Pub/Sub
+  participant PM as Project Manager
+  C->>PaySvc: create-order (estimate accepted, amount=10%)
+  PaySvc->>GW: create order (server-side, amount from server not client)
+  GW-->>C: hosted checkout / UPI intent
+  C->>GW: pay
+  GW-->>PaySvc: webhook (signed) payment.captured
+  PaySvc->>PaySvc: verify signature + idempotency + amount match
+  PaySvc->>Bus: payment.received
+  Bus-->>PM: verify queue (payment.verify) + auto-activate
+  PaySvc-->>C: receipt (PDF)
+```
+**Amount is always computed server‑side** from the accepted estimate (never trust a client‑sent amount — anti‑tamper). Webhook is **signature‑verified + idempotent** (a replayed webhook can't double‑activate).
+
+**16.3 Verification & activation.** On verified capture → `project.activate` (stage → Booking), `group.create` prompt to PM, notifications to team + customer, receipt generation. PM sees a **verify** step for reconciliation, but activation can be automatic on verified webhook to remove delay.
+
+**16.4 Beyond booking.** Milestone payments (design approval, pre‑production, handover — the CRM already models a milestone rail), **invoice generation**, **payment history**, **receipts**, and **refund handling** (partial/full, with approval + audit + gateway refund API). All payment records are immutable + audited; reconciliation exports to BigQuery for finance.
+
+**16.5 Security.** No card data at rest; webhook allow‑list + HMAC; idempotency keys; amount/currency server‑authoritative; rate‑limited; every state change audited; refund requires PM/MH approval (privilege‑separated from the SE who collects).
+
+---
+
+# 17. Production Workflow
+
+Owned by the **Production Engineer** (⊇ Designer). Turns the customer‑approved final design into physical, tracked, quality‑checked, dispatched units.
+
+**17.1 Flow.**
+```mermaid
+graph TD
+  A[Final design approved by customer] --> B[PE generates Cut List - PDF]
+  B --> C[System issues Part IDs + signed QR labels]
+  C --> D[Label Service prints labels]
+  D --> E[Manufacturing - scan at each station]
+  E --> F[Part QC - scan pass/fail]
+  F -->|fail| E
+  F -->|pass| G[Assembly + Assembly QC]
+  G --> H[Packing - scan Packed]
+  H --> I[Factory Final Checklist - photos + e-sign]
+  I -->|pass| J[Load - scan Loaded]
+  J --> K[Dispatch - scan Dispatched + logistics]
+  I -->|fail| E
+```
+
+**17.2 Factory floor console (Company App, PE + operators).** Production queue by project/station; **QR scanner** (camera) for stage updates; machine/station status board; per‑part & per‑project timeline; QC capture (pass/fail + photo); **inventory consumption** (board/hardware deducted as parts are cut — links to an inventory table); WIP dashboards. Coordinates continuously with Designer (design queries) and Site Manager (dispatch ETA) — all three synced (Rule 3).
+
+**17.3 Cut List ↔ BOQ/BOM.** The cut list yields parts (for QR/traceability); the **BOQ/BOM** (already uploadable in the web CRM) feeds inventory consumption and the revised estimate. These stay **internal** (customer never sees them).
+
+**17.4 Quality gates.** Part‑level QC and assembly‑level QC are **mandatory scan gates** — a part cannot advance to Packed without a QC pass scan; a project cannot Dispatch without the **Factory Final Checklist** completed & e‑signed. This is the digital enforcement of "ensure quality before it leaves the factory."
+
+**17.5 Dispatch.** On checklist pass → **loading**: each part scanned `Loaded` (builds the authoritative *loaded manifest*), then `Dispatched` with logistics info (vehicle, driver, ETA, optional GPS). The loaded manifest is what the Site Manager reconciles against on arrival (§18).
+
+**17.6 Events.** `cutlist.published`, `part.scanned` (many), `qc.failed`, `checklist.factory.passed`, `dispatch.created` → notifications to trio + PM + customer‑timeline (coarse), analytics to BigQuery.
+
+---
+
+# 18. Installation Workflow
+
+Owned by the **Site Manager** (extends `supervisor`). Reconciles the physical delivery, installs (via vendors), handles exceptions, and closes the project.
+
+**18.1 Flow.**
+```mermaid
+graph TD
+  A[Material arrives on site] --> B[Unload checklist: scan each part vs Loaded manifest]
+  B -->|all match| C[Coordinate 3rd-party fitting vendors]
+  B -->|missing/damaged| T[Raise Ticket to PE - photos]
+  C --> D[Installation - quality & precision checks]
+  D -->|fitting error / damaged / missing| T
+  T --> R[PE: remanufacture or on-site fix]
+  R --> C
+  D --> E[Installation Checklist - photos + e-sign]
+  E --> F[Site bills captured - photo → PM approval]
+  F --> G[Completion Checklist + customer sign-off]
+  G --> H[Project Closure → After-sales]
+```
+
+**18.2 Load/unload reconciliation (required feature).** The SM scans parts on arrival; the app compares **Unloaded** scans to the **Loaded** manifest (§17.5) and **auto‑flags any missing part** — no manual counting. This is the "verify all loaded parts are unloaded" requirement, implemented via the QR traceability spine.
+
+**18.3 Tickets (required feature, with image upload).** For **damaged / missing / fitting‑error** parts, the SM raises a ticket (`kind`, `priority`, description, **photos/videos**) assigned to the **Production Engineer**; PE resolves via **remanufacture** (re‑enters the part into production, §14.2) or an on‑site fix. Status/updates sync to the trio + PM in real time; the customer sees a reassuring, non‑technical status ("replacement being prepared").
+
+**18.4 Site expenses (required feature).** Any on‑site cost is captured via **camera** (bill photo) → **PM approval** workflow → recorded expense (audited). Privilege separation: SM submits, PM approves.
+
+**18.5 Vendor coordination.** 3rd‑party fitting vendors are managed entities the SM assigns tasks to and tracks; v1 keeps them off‑app (SM is the accountable user). Optional future: lightweight OTP‑link vendor access (⚠ §30).
+
+**18.6 Closure & after‑sales.** Completion checklist (photos + e‑sign by SM and customer) → project closed → warranty/after‑sales tickets can still be raised by the customer from the Client App, routing to PM.
+
+---
+
+> **⏸ End of Installment 2 (sections 13–18).**
+> **Next — Installment 3 (sections 19–22):** Notification Architecture, Security Architecture, Cybersecurity Threat Model & Mitigations, Google Cloud Architecture.
+> Numbering and continuity preserved; nothing above is renumbered.
