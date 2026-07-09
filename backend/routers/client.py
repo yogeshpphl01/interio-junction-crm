@@ -38,7 +38,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
-from core import db, get_current_customer, now_iso, STAGES
+from core import db, get_current_customer, now_iso, STAGES, run_workflow_notify_designer
 from auth_utils import (
     hash_password, verify_password, decode_token,
     create_customer_access_token, create_customer_refresh_token,
@@ -55,6 +55,13 @@ OTP_MAX_ATTEMPTS = 5           # lock the code after 5 wrong tries
 
 # Estimate states a customer is allowed to see (internal drafts stay hidden).
 CLIENT_VISIBLE_ESTIMATE_STATES = ["shared", "accepted"]
+# Design revisions the customer may see (Draft / internal Pending stay hidden).
+CLIENT_VISIBLE_REVISION_STATES = ["Shared", "Approved", "Revision Requested"]
+# Document types appropriate for the customer (manufacturing docs stay internal:
+# Cutlist / BOM / BOQ / Site Measurement Sheet are never exposed).
+CLIENT_VISIBLE_DOC_TYPES = ["2D CAD", "3D Render", "Design File", "Quotation PDF", "Site Photo"]
+# Payment statuses that count as money actually received.
+PAID_PAYMENT_STATES = ["verified", "paid", "Paid"]
 
 _STAGE_BY_ID = {s["id"]: s for s in STAGES}
 
@@ -122,6 +129,30 @@ async def _get_or_create_customer(norm_phone: str, leads: list[dict]) -> dict:
 async def _my_lead_ids(customer: dict) -> list[str]:
     rows = await db.leads.find({"customer_id": customer["id"]}, {"_id": 0, "id": 1}).to_list(1000)
     return [r["id"] for r in rows]
+
+
+async def _my_project_ids(customer: dict) -> list[str]:
+    rows = await db.leads.find({"customer_id": customer["id"]}, {"_id": 0, "project_id": 1}).to_list(1000)
+    return [r["project_id"] for r in rows if r.get("project_id")]
+
+
+def _doc_view(d: dict) -> dict:
+    """Customer-safe document metadata. storage_path is the ref the app turns into
+    a signed download URL — no bytes are served here."""
+    return {
+        "id": d["id"], "type": d.get("type"), "filename": d.get("original_filename"),
+        "content_type": d.get("content_type"), "size": d.get("size"),
+        "storage_path": d.get("storage_path"), "created_at": d.get("created_at"),
+    }
+
+
+def _payment_view(p: dict) -> dict:
+    return {
+        "id": p["id"], "type": p.get("type") or "milestone", "milestone": p.get("milestone"),
+        "amount": p.get("amount"), "currency": p.get("currency") or "INR",
+        "status": p.get("status"), "method": p.get("method"),
+        "due_date": p.get("due_date"), "paid_date": p.get("paid_date"),
+    }
 
 
 def _stage_view(stage) -> dict:
@@ -339,3 +370,136 @@ async def client_accept_estimate(estimate_id: str, request: Request,
     await log_audit(db, None, "estimate.accepted", "estimate", estimate_id, f"v{est.get('version')}",
                     {"lead_id": est["lead_id"], "channel": "client_app", "customer_id": customer["id"]}, request)
     return {"ok": True, "estimate_id": estimate_id, "status": "accepted"}
+
+
+# ---- Designs: view + the customer feedback loop (approve / request changes) ----
+
+class DesignFeedbackIn(BaseModel):
+    feedback: str = ""
+
+
+async def _own_revision_or_404(rev_id: str, customer: dict) -> dict:
+    """Load a revision only if it belongs to one of the customer's projects."""
+    rev = await db.design_revisions.find_one({"id": rev_id}, {"_id": 0})
+    if not rev:
+        raise HTTPException(status_code=404, detail="Design not found")
+    if rev.get("project_id") not in await _my_project_ids(customer):
+        raise HTTPException(status_code=404, detail="Design not found")  # never leak others' designs
+    return rev
+
+
+@router.get("/client/designs")
+async def client_designs(customer: dict = Depends(get_current_customer)):
+    """The customer's shared design revisions (with any attached render/CAD files)."""
+    pids = await _my_project_ids(customer)
+    if not pids:
+        return {"designs": []}
+    revs = await db.design_revisions.find(
+        {"project_id": {"$in": pids}, "status": {"$in": CLIENT_VISIBLE_REVISION_STATES}},
+        {"_id": 0},
+    ).sort("revision_number", -1).to_list(200)
+    out = []
+    for r in revs:
+        linked = await db.documents.find({"linked_revision_id": r["id"]}, {"_id": 0}).to_list(50)
+        r["documents"] = [_doc_view(d) for d in linked
+                          if not d.get("is_deleted") and d.get("type") in CLIENT_VISIBLE_DOC_TYPES]
+        out.append(r)
+    return {"designs": out}
+
+
+@router.post("/client/designs/{rev_id}/approve")
+async def client_approve_design(rev_id: str, request: Request,
+                                customer: dict = Depends(get_current_customer)):
+    """Customer approves a shared design revision (the Production-Design gate needs one)."""
+    rev = await _own_revision_or_404(rev_id, customer)
+    if rev["status"] == "Approved":
+        return {"ok": True, "revision_id": rev_id, "status": "Approved"}  # idempotent
+    if rev["status"] not in ("Shared", "Revision Requested"):
+        raise HTTPException(status_code=409, detail="This design is not available to approve")
+    ts = now_iso()
+    await db.design_revisions.update_one({"id": rev_id}, {"$set": {"status": "Approved"}})
+    lead = await db.leads.find_one({"project_id": rev["project_id"]}, {"_id": 0, "id": 1})
+    if lead:
+        await db.activities.insert_one({
+            "id": str(uuid.uuid4()), "lead_id": lead["id"], "type": "Note",
+            "summary": f"Customer approved design R{rev.get('revision_number')} via the Client App.",
+            "actor_id": None, "created_at": ts,
+        })
+    await log_audit(db, None, "client.design_approved", "revision", rev_id, f"R{rev.get('revision_number')}",
+                    {"project_id": rev["project_id"], "channel": "client_app", "customer_id": customer["id"]}, request)
+    return {"ok": True, "revision_id": rev_id, "status": "Approved"}
+
+
+@router.post("/client/designs/{rev_id}/request-changes")
+async def client_request_changes(rev_id: str, body: DesignFeedbackIn, request: Request,
+                                 customer: dict = Depends(get_current_customer)):
+    """Customer asks for design changes; this notifies the designer (same automation
+    the CRM uses when an internal user sets 'Revision Requested')."""
+    rev = await _own_revision_or_404(rev_id, customer)
+    if rev["status"] not in ("Shared", "Approved", "Revision Requested"):
+        raise HTTPException(status_code=409, detail="This design is not available for feedback")
+    ts = now_iso()
+    await db.design_revisions.update_one(
+        {"id": rev_id}, {"$set": {"status": "Revision Requested", "client_feedback": body.feedback or ""}})
+    new_rev = await db.design_revisions.find_one({"id": rev_id}, {"_id": 0})
+    lead = await db.leads.find_one({"project_id": rev["project_id"]}, {"_id": 0, "id": 1})
+    if lead:
+        await db.activities.insert_one({
+            "id": str(uuid.uuid4()), "lead_id": lead["id"], "type": "Note",
+            "summary": f"Customer requested changes on design R{rev.get('revision_number')} via the Client App.",
+            "actor_id": None, "created_at": ts,
+        })
+    await run_workflow_notify_designer(rev_id, new_rev)
+    await log_audit(db, None, "client.design_changes_requested", "revision", rev_id, f"R{rev.get('revision_number')}",
+                    {"project_id": rev["project_id"], "channel": "client_app", "customer_id": customer["id"]}, request)
+    return {"ok": True, "revision_id": rev_id, "status": "Revision Requested"}
+
+
+# ---- Payments (history + balance) and Documents (customer-safe files) ----
+
+@router.get("/client/payments")
+async def client_payments(customer: dict = Depends(get_current_customer)):
+    """The customer's payments (booking + milestones) with a paid/balance summary."""
+    pids = await _my_project_ids(customer)
+    lead_ids = await _my_lead_ids(customer)
+    rows: list[dict] = []
+    seen: set[str] = set()
+    if pids:
+        for p in await db.payments.find({"project_id": {"$in": pids}}, {"_id": 0}).to_list(500):
+            if p["id"] not in seen:
+                rows.append(p); seen.add(p["id"])
+    if lead_ids:  # booking payments are anchored to the lead
+        for p in await db.payments.find({"lead_id": {"$in": lead_ids}}, {"_id": 0}).to_list(500):
+            if p["id"] not in seen:
+                rows.append(p); seen.add(p["id"])
+
+    contract_value = 0.0
+    for pid in pids:
+        pr = await db.projects.find_one({"id": pid}, {"_id": 0, "contract_value": 1})
+        if pr:
+            contract_value += (pr.get("contract_value") or 0)
+    paid = sum((p.get("amount") or 0) for p in rows if p.get("status") in PAID_PAYMENT_STATES)
+    rows.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return {
+        "summary": {
+            "contract_value": round(contract_value, 2),
+            "paid": round(paid, 2),
+            "balance": round(max(contract_value - paid, 0), 2),
+            "currency": "INR",
+        },
+        "payments": [_payment_view(p) for p in rows],
+    }
+
+
+@router.get("/client/documents")
+async def client_documents(customer: dict = Depends(get_current_customer)):
+    """Customer-appropriate documents only (renders, CAD, design files, quotations,
+    site photos) — internal manufacturing docs are never returned."""
+    pids = await _my_project_ids(customer)
+    if not pids:
+        return {"documents": []}
+    docs = await db.documents.find({"project_id": {"$in": pids}}, {"_id": 0}).to_list(1000)
+    visible = [_doc_view(d) for d in docs
+               if not d.get("is_deleted") and d.get("type") in CLIENT_VISIBLE_DOC_TYPES]
+    visible.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return {"documents": visible}
