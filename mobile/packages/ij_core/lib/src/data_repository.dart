@@ -53,8 +53,10 @@ class CompanyRepository {
   // --- Worklist actions (contract §5.4 / §5.6 / §5.8) ---
   Future<void> approveEstimate(String id) => api.post('/estimates/$id/approve');
   Future<void> rejectEstimate(String id) => api.post('/estimates/$id/reject');
-  Future<void> approveExpense(String id) => api.post('/expenses/$id/approve');
-  Future<void> rejectExpense(String id) => api.post('/expenses/$id/reject');
+  // Send an explicit {} so the optional DecisionIn body parses cleanly (an empty
+  // application/json body can 422 on some Starlette versions).
+  Future<void> approveExpense(String id) => api.post('/expenses/$id/approve', body: {});
+  Future<void> rejectExpense(String id) => api.post('/expenses/$id/reject', body: {});
 
   Future<void> resolveTicket(String id, {String? note, bool remanufacture = false}) =>
       api.post('/tickets/$id/resolve', body: {'note': note, 'remanufacture': remanufacture});
