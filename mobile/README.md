@@ -30,13 +30,17 @@ mobile/
 
 Prerequisites: Flutter 3.22+ (Dart 3.4+).
 
+This repo ships each app's `lib/` + `pubspec.yaml`. The platform folders
+(`android/`, `ios/`, …) are generated locally and git-ignored — run
+`flutter create .` inside each app once to produce them.
+
 ```bash
 # 1) Shared package
 cd mobile/packages/ij_core && flutter pub get
 
-# 2) Each app
-cd ../../apps/client_app  && flutter pub get
-cd ../company_app         && flutter pub get
+# 2) Each app: generate platform folders, then fetch deps
+cd ../../apps/client_app  && flutter create . && flutter pub get
+cd ../company_app         && flutter create . && flutter pub get
 
 # 3) Point the app at your backend (defaults to the Android-emulator host loopback)
 flutter run --dart-define=IJ_API_BASE=http://10.0.2.2:8000/api      # Android emulator
