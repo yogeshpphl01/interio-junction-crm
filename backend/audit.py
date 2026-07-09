@@ -25,7 +25,7 @@ ACTIONS = {
     "project.created",
     "measurement.created", "measurement.updated", "measurement.completed",
     "revision.created", "revision.updated", "revision.status_changed",
-    "payment.created", "payment.updated", "payment.paid",
+    "payment.created", "payment.updated", "payment.paid", "payment.received",
     "fixture.created", "fixture.deleted",
     "estimate.created", "estimate.submitted", "estimate.approved",
     "estimate.rejected", "estimate.shared", "estimate.accepted",

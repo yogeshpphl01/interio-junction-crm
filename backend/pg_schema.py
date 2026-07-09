@@ -221,6 +221,8 @@ SCHEMA: dict[str, dict] = {
             "rough_estimate": "DOUBLE PRECISION",
             "contract_value": "DOUBLE PRECISION",
             "signed_off": "BOOLEAN",
+            "booking_paid": "BOOLEAN",         # 10% booking received -> project activated
+            "activated_at": "TEXT",
             "sent_to_factory": "BOOLEAN",
             "factory_handover_at": "TEXT",
             "created_at": "TEXT",
@@ -280,8 +282,16 @@ SCHEMA: dict[str, dict] = {
         "columns": {
             "id": "TEXT",
             "project_id": "TEXT",
+            "lead_id": "TEXT",                 # booking payment is recorded before the project exists
+            "type": "TEXT",                    # "milestone" (web CRM) | "booking" (mobile)
             "milestone": "TEXT",
             "amount": "DOUBLE PRECISION",
+            "currency": "TEXT",
+            "method": "TEXT",                  # manual_upi | razorpay
+            "reference": "TEXT",               # UPI txn ref / gateway payment id
+            "screenshot_ref": "TEXT",          # manual-UPI payment screenshot
+            "verified_by": "TEXT",
+            "verified_at": "TEXT",
             "due_date": "TEXT",
             "paid_date": "TEXT",
             "status": "TEXT",
@@ -290,6 +300,7 @@ SCHEMA: dict[str, dict] = {
         "json": [],
         "indexes": [
             {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("lead_id", 1)], "unique": False},
         ],
     },
 
