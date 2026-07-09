@@ -2,43 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:ij_core/ij_core.dart';
 
 import '../services.dart';
-import '../push/push_service.dart';
-import '../auth/login_screen.dart';
 
-/// Employee home: role-aware "things to act on" buckets (contract §5.2). Tapping
-/// an item opens the right action sheet (approve/reject an estimate or expense,
-/// resolve a ticket); the list refreshes after any action.
-class WorklistScreen extends StatefulWidget {
-  const WorklistScreen({super.key});
+/// Work tab: role-aware "things to act on" buckets (contract §5.2). Tapping an
+/// item opens the right action sheet (approve/reject an estimate or expense,
+/// resolve a ticket); the list refreshes after any action. Body-only — the shell
+/// owns the AppBar and sign-out.
+class WorklistTab extends StatefulWidget {
+  const WorklistTab({super.key});
 
   @override
-  State<WorklistScreen> createState() => _WorklistScreenState();
+  State<WorklistTab> createState() => _WorklistTabState();
 }
 
-class _WorklistScreenState extends State<WorklistScreen> {
+class _WorklistTabState extends State<WorklistTab> {
   late Future<List<WorklistBucket>> _future = Services.i.data.worklist();
-
-  @override
-  void initState() {
-    super.initState();
-    // Signed in — register this device for push (no-op until Firebase is configured).
-    PushService.instance.registerAfterLogin(Services.i.auth.registerDevice);
-  }
 
   Future<void> _refresh() async {
     final next = Services.i.data.worklist();
     setState(() => _future = next);
     await next;
-  }
-
-  Future<void> _logout() async {
-    await PushService.instance.onLogout(Services.i.auth.unregisterDevice); // before tokens are cleared
-    await Services.i.auth.logout();
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (_) => false,
-    );
   }
 
   Future<void> _openActions(String bucketKey, Map<String, dynamic> item) async {
@@ -56,42 +38,36 @@ class _WorklistScreenState extends State<WorklistScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Work'),
-        actions: [IconButton(icon: const Icon(Icons.logout), tooltip: 'Sign out', onPressed: _logout)],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: FutureBuilder<List<WorklistBucket>>(
-          future: _future,
-          builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snap.hasError) {
-              return ListView(children: [
-                const SizedBox(height: 140),
-                const Icon(Icons.error_outline, size: 48, color: Colors.black26),
-                const SizedBox(height: 12),
-                Center(child: Text('${snap.error}', style: const TextStyle(color: Colors.black54))),
-                const SizedBox(height: 12),
-                Center(child: FilledButton.tonal(onPressed: _refresh, child: const Text('Retry'))),
-              ]);
-            }
-            final buckets = snap.data ?? const [];
-            if (buckets.isEmpty) {
-              return ListView(children: const [
-                SizedBox(height: 160),
-                Center(child: Text('Nothing needs your attention. 🎉')),
-              ]);
-            }
-            return ListView(
-              padding: const EdgeInsets.all(16),
-              children: [for (final b in buckets) _BucketSection(bucket: b, onTap: _openActions)],
-            );
-          },
-        ),
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: FutureBuilder<List<WorklistBucket>>(
+        future: _future,
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return ListView(children: [
+              const SizedBox(height: 140),
+              const Icon(Icons.error_outline, size: 48, color: Colors.black26),
+              const SizedBox(height: 12),
+              Center(child: Text('${snap.error}', style: const TextStyle(color: Colors.black54))),
+              const SizedBox(height: 12),
+              Center(child: FilledButton.tonal(onPressed: _refresh, child: const Text('Retry'))),
+            ]);
+          }
+          final buckets = snap.data ?? const [];
+          if (buckets.isEmpty) {
+            return ListView(children: const [
+              SizedBox(height: 160),
+              Center(child: Text('Nothing needs your attention. 🎉')),
+            ]);
+          }
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [for (final b in buckets) _BucketSection(bucket: b, onTap: _openActions)],
+          );
+        },
       ),
     );
   }
@@ -176,8 +152,9 @@ class _CountBadge extends StatelessWidget {
   }
 }
 
-/// The per-item action sheet. Approve/reject an estimate or expense, or resolve a
-/// ticket (with an optional "send back to production" flag). Pops `true` on success.
+/// Per-item action sheet: approve/send-back an estimate, approve/reject an
+/// expense, or resolve a ticket (with an optional remanufacture flag). Pops true
+/// on success.
 class _ActionSheet extends StatefulWidget {
   const _ActionSheet({required this.bucketKey, required this.item});
   final String bucketKey;
@@ -242,13 +219,8 @@ class _ActionSheetState extends State<_ActionSheet> {
           ],
           if (_busy)
             const Padding(padding: EdgeInsets.all(8), child: Center(child: CircularProgressIndicator()))
-          else ...[
-            for (final a in _actions(data))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: a,
-              ),
-          ],
+          else
+            for (final a in _actions(data)) Padding(padding: const EdgeInsets.only(bottom: 8), child: a),
           TextButton(
             onPressed: _busy ? null : () => Navigator.pop(context, false),
             child: const Text('Cancel'),

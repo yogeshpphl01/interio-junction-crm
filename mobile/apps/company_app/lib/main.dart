@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'src/services.dart';
 import 'src/push/push_service.dart';
 import 'src/auth/login_screen.dart';
-import 'src/home/worklist_screen.dart';
+import 'src/home/company_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,7 +42,7 @@ class _Root extends StatelessWidget {
         if (!snap.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-        return snap.data! ? const WorklistScreen() : const LoginScreen();
+        return snap.data! ? const CompanyShell() : const LoginScreen();
       },
     );
   }

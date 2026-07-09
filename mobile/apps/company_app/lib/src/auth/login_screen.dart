@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ij_core/ij_core.dart';
 
 import '../services.dart';
-import '../home/worklist_screen.dart';
+import '../home/company_shell.dart';
 
 /// Employee email/password login (contract §5.1).
 class LoginScreen extends StatefulWidget {
@@ -27,7 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await Services.i.auth.login(_email.text.trim(), _password.text);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const WorklistScreen()),
+        MaterialPageRoute(builder: (_) => const CompanyShell()),
       );
     } on ApiException catch (e) {
       setState(() => _error = e.statusCode == 401 ? 'Invalid email or password' : e.message);
