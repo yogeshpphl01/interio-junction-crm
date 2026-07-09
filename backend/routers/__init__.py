@@ -23,6 +23,7 @@ from .checklists import router as checklists_router  # NEW: mobile P0 — checkl
 from .expenses import router as expenses_router      # NEW: mobile P0 — site expenses
 from .campaigns import router as campaigns_router    # NEW: mobile P0 — campaign import + MH→PM→SE distribution
 from .booking import router as booking_router        # NEW: mobile P0 — booking payment → project activation
+from .client import router as client_router          # NEW: mobile P0 — Client App BFF (customer auth + scoped reads)
 
 ALL_ROUTERS = [
     meta_router, auth_router, users_router, leads_router,
@@ -31,4 +32,5 @@ ALL_ROUTERS = [
     automations_router, analytics_router, audit_router, notifications_router,
     imports_router, roles_router, fixtures_router, estimates_router, production_router,
     tickets_router, checklists_router, expenses_router, campaigns_router, booking_router,
+    client_router,
 ]

@@ -34,6 +34,7 @@ ACTIONS = {
     "checklist.created", "checklist.completed",
     "expense.submitted", "expense.approved", "expense.rejected",
     "campaign.imported", "campaign.distributed", "leads.distributed_to_se",
+    "client.otp_requested", "client.otp_failed", "client.login", "client.logout",
     "document.uploaded", "document.downloaded",
     "automation.toggled", "automation.run_checks",
     "import.leads",

@@ -59,6 +59,36 @@ def create_refresh_token(user_id: str) -> str:
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
+# ---- Client App (customer) tokens -----------------------------------------
+# A SEPARATE token family for the Client App. The distinct "customer_access"
+# type is the dual-BFF security boundary: get_current_user rejects anything
+# whose type != "access", and get_current_customer rejects anything whose type
+# != "customer_access" — so an employee token can never reach a customer
+# endpoint and a customer token can never reach a company/RBAC endpoint. Mobile
+# clients keep a long-lived refresh so customers rarely re-authenticate.
+CUSTOMER_ACCESS_TTL_MIN = 60 * 24        # 24h
+CUSTOMER_REFRESH_TTL_DAYS = 60
+
+
+def create_customer_access_token(customer_id: str, phone: str) -> str:
+    payload = {
+        "sub": customer_id,
+        "phone": phone,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=CUSTOMER_ACCESS_TTL_MIN),
+        "type": "customer_access",
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+
+def create_customer_refresh_token(customer_id: str) -> str:
+    payload = {
+        "sub": customer_id,
+        "exp": datetime.now(timezone.utc) + timedelta(days=CUSTOMER_REFRESH_TTL_DAYS),
+        "type": "customer_refresh",
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
     response.set_cookie(
         key="access_token",

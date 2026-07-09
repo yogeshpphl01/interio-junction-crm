@@ -311,6 +311,24 @@ def require_roles(*roles: str):
     return dep
 
 
+# ---------- Client App (customer) auth dependency ----------
+async def get_current_customer(request: Request) -> dict:
+    """
+    Authenticate a Client-App customer. This is the customer side of the
+    dual-BFF boundary: it honours ONLY a 'customer_access' token, so an employee
+    token (type 'access') is rejected here just as get_current_user rejects a
+    customer token. The two identity worlds never cross.
+    """
+    token = extract_token(request)
+    payload = decode_token(token)
+    if payload.get("type") != "customer_access":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+    customer = await db.customers.find_one({"id": payload["sub"]}, {"_id": 0})
+    if not customer or not customer.get("is_active", True):
+        raise HTTPException(status_code=401, detail="Customer not found or inactive")
+    return customer
+
+
 # ---------- Visibility helpers ----------
 async def project_ids_for_designer(user_id: str) -> list[str]:
     cur = db.design_revisions.find({"designer_id": user_id}, {"project_id": 1, "_id": 0})

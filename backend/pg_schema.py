@@ -167,6 +167,7 @@ SCHEMA: dict[str, dict] = {
             # --- mobile ecosystem: campaign + hierarchy distribution (MH -> PM -> SE) ---
             "campaign_id": "TEXT",   # links to marketing_campaigns.id
             "pm_id": "TEXT",         # Project Manager the lead was distributed to
+            "customer_id": "TEXT",   # links to customers.id once the client authenticates (Client App)
             # --- pipeline position + outcome (original fields) ---
             "stage": "INTEGER",
             "status": "TEXT",
@@ -206,6 +207,7 @@ SCHEMA: dict[str, dict] = {
             {"cols": [("project_id", 1)], "unique": False},
             {"cols": [("campaign_id", 1)], "unique": False},
             {"cols": [("pm_id", 1)], "unique": False},
+            {"cols": [("customer_id", 1)], "unique": False},
             # Unique (when present) so Excel re-uploads UPDATE instead of duplicating.
             {"cols": [("meta_lead_id", 1)], "unique": True},
         ],
@@ -417,13 +419,41 @@ SCHEMA: dict[str, dict] = {
         "columns": {
             "id": "TEXT", "lead_id": "TEXT", "full_name": "TEXT",
             "phone": "TEXT", "email": "TEXT", "auth_uid": "TEXT",
-            "is_active": "BOOLEAN", "created_at": "TEXT",
+            "is_active": "BOOLEAN", "last_login_at": "TEXT", "created_at": "TEXT",
         },
         "json": [],
         "indexes": [
             {"cols": [("phone", 1)], "unique": True},
             {"cols": [("email", 1)], "unique": True},
             {"cols": [("lead_id", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="customer_otps">
+    #   <purpose>
+    #     One-time login codes for the Client App. Mirrors password_resets but is
+    #     keyed on PHONE (not customer_id) because the customer's account may not
+    #     exist yet at the moment the first code is requested. Only the hash of the
+    #     code is stored; "latest row per phone wins". Delivery is pluggable
+    #     (SMS / WhatsApp / Firebase later) — logged for now.
+    #   </purpose>
+    # </table>
+    "customer_otps": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "phone": "TEXT",          # normalized phone the code was issued for
+            "otp_hash": "TEXT",       # bcrypt hash of the code (never the plain code)
+            "expires_at": "TEXT",
+            "attempts": "INTEGER",    # wrong tries so far (locks at OTP_MAX_ATTEMPTS)
+            "sent_at": "TEXT",        # last delivery time (drives the resend cooldown)
+            "consumed": "BOOLEAN",    # used / invalidated
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("phone", 1)], "unique": False},
+            {"cols": [("created_at", -1)], "unique": False},
         ],
     },
 
