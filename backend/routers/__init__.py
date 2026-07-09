@@ -21,6 +21,7 @@ from .production import router as production_router  # NEW: mobile P0 — Infurn
 from .tickets import router as tickets_router        # NEW: mobile P0 — site/production tickets
 from .checklists import router as checklists_router  # NEW: mobile P0 — checklists + reconciliation
 from .expenses import router as expenses_router      # NEW: mobile P0 — site expenses
+from .campaigns import router as campaigns_router    # NEW: mobile P0 — campaign import + MH→PM→SE distribution
 
 ALL_ROUTERS = [
     meta_router, auth_router, users_router, leads_router,
@@ -28,5 +29,5 @@ ALL_ROUTERS = [
     activities_router, documents_router, scoring_router,
     automations_router, analytics_router, audit_router, notifications_router,
     imports_router, roles_router, fixtures_router, estimates_router, production_router,
-    tickets_router, checklists_router, expenses_router,
+    tickets_router, checklists_router, expenses_router, campaigns_router,
 ]

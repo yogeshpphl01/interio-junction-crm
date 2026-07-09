@@ -164,6 +164,9 @@ SCHEMA: dict[str, dict] = {
             "requirements": "TEXT",
             "assigned_to": "TEXT",
             "created_by": "TEXT",
+            # --- mobile ecosystem: campaign + hierarchy distribution (MH -> PM -> SE) ---
+            "campaign_id": "TEXT",   # links to marketing_campaigns.id
+            "pm_id": "TEXT",         # Project Manager the lead was distributed to
             # --- pipeline position + outcome (original fields) ---
             "stage": "INTEGER",
             "status": "TEXT",
@@ -201,6 +204,8 @@ SCHEMA: dict[str, dict] = {
             {"cols": [("status", 1)], "unique": False},
             {"cols": [("lifecycle_phase", 1)], "unique": False},
             {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("campaign_id", 1)], "unique": False},
+            {"cols": [("pm_id", 1)], "unique": False},
             # Unique (when present) so Excel re-uploads UPDATE instead of duplicating.
             {"cols": [("meta_lead_id", 1)], "unique": True},
         ],

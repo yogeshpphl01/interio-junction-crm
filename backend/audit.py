@@ -33,6 +33,7 @@ ACTIONS = {
     "ticket.raised", "ticket.resolved",
     "checklist.created", "checklist.completed",
     "expense.submitted", "expense.approved", "expense.rejected",
+    "campaign.imported", "campaign.distributed", "leads.distributed_to_se",
     "document.uploaded", "document.downloaded",
     "automation.toggled", "automation.run_checks",
     "import.leads",
