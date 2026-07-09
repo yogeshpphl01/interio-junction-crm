@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
 
 import 'src/services.dart';
+import 'src/push/push_service.dart';
 import 'src/auth/otp_login_screen.dart';
 import 'src/home/home_shell.dart';
 
-void main() => runApp(const ClientApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // No-op until Firebase is configured (see PUSH_SETUP.md).
+  await PushService.instance.init(onOpen: (data) {
+    // data['type'] is 'estimate' | 'booking' | … — deep-link routing hooks here.
+  });
+  runApp(const ClientApp());
+}
 
 class ClientApp extends StatelessWidget {
   const ClientApp({super.key});

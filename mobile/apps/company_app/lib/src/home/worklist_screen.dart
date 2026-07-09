@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ij_core/ij_core.dart';
 
 import '../services.dart';
+import '../push/push_service.dart';
 import '../auth/login_screen.dart';
 
 /// Employee home: role-aware "things to act on" buckets (contract §5.2). Tapping
@@ -17,6 +18,13 @@ class WorklistScreen extends StatefulWidget {
 class _WorklistScreenState extends State<WorklistScreen> {
   late Future<List<WorklistBucket>> _future = Services.i.data.worklist();
 
+  @override
+  void initState() {
+    super.initState();
+    // Signed in — register this device for push (no-op until Firebase is configured).
+    PushService.instance.registerAfterLogin(Services.i.auth.registerDevice);
+  }
+
   Future<void> _refresh() async {
     final next = Services.i.data.worklist();
     setState(() => _future = next);
@@ -24,6 +32,7 @@ class _WorklistScreenState extends State<WorklistScreen> {
   }
 
   Future<void> _logout() async {
+    await PushService.instance.onLogout(Services.i.auth.unregisterDevice); // before tokens are cleared
     await Services.i.auth.logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(

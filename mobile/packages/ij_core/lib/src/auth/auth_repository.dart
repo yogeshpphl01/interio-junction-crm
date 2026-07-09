@@ -32,6 +32,9 @@ class CustomerAuthRepository {
   Future<void> registerDevice(String fcmToken, {String? platform}) =>
       api.post('/client/devices', body: {'token': fcmToken, 'platform': platform});
 
+  Future<void> unregisterDevice(String fcmToken) =>
+      api.delete('/client/devices', body: {'token': fcmToken});
+
   Future<void> logout() async {
     try {
       await api.post('/client/auth/logout');
@@ -65,6 +68,9 @@ class EmployeeAuthRepository {
 
   Future<void> registerDevice(String fcmToken, {String? platform}) =>
       api.post('/devices', body: {'token': fcmToken, 'platform': platform});
+
+  Future<void> unregisterDevice(String fcmToken) =>
+      api.delete('/devices', body: {'token': fcmToken});
 
   Future<void> logout() async {
     try {

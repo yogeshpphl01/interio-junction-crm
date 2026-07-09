@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services.dart';
+import '../push/push_service.dart';
 import '../auth/otp_login_screen.dart';
 import 'projects_screen.dart';
 import 'estimates_screen.dart';
@@ -22,7 +23,16 @@ class _HomeShellState extends State<HomeShell> {
   static const _titles = ['My Project', 'Estimates', 'Designs', 'Payments'];
   final _tabs = const [ProjectsTab(), EstimatesTab(), DesignsTab(), PaymentsTab()];
 
+  @override
+  void initState() {
+    super.initState();
+    // Now that a customer is signed in, register this device for push (no-op
+    // until Firebase is configured).
+    PushService.instance.registerAfterLogin(Services.i.auth.registerDevice);
+  }
+
   Future<void> _logout() async {
+    await PushService.instance.onLogout(Services.i.auth.unregisterDevice); // before tokens are cleared
     await Services.i.auth.logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(

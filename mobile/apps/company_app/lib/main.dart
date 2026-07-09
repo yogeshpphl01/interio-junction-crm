@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
 
 import 'src/services.dart';
+import 'src/push/push_service.dart';
 import 'src/auth/login_screen.dart';
 import 'src/home/worklist_screen.dart';
 
-void main() => runApp(const CompanyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // No-op until Firebase is configured (see PUSH_SETUP.md).
+  await PushService.instance.init(onOpen: (data) {
+    // data['type'] deep-link routing hooks here.
+  });
+  runApp(const CompanyApp());
+}
 
 class CompanyApp extends StatelessWidget {
   const CompanyApp({super.key});
