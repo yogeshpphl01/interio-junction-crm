@@ -27,6 +27,8 @@ ACTIONS = {
     "revision.created", "revision.updated", "revision.status_changed",
     "payment.created", "payment.updated", "payment.paid",
     "fixture.created", "fixture.deleted",
+    "estimate.created", "estimate.submitted", "estimate.approved",
+    "estimate.rejected", "estimate.shared", "estimate.accepted",
     "document.uploaded", "document.downloaded",
     "automation.toggled", "automation.run_checks",
     "import.leads",
