@@ -74,6 +74,7 @@ SCHEMA: dict[str, dict] = {
             "role": "TEXT",
             "phone": "TEXT",
             "recovery_email": "TEXT",            # personal inbox for password-reset OTPs
+            "reports_to": "TEXT",                # manager in the hierarchy (mobile ecosystem)
             "is_active": "BOOLEAN",
             "must_change_password": "BOOLEAN",  # set after admin generates a password
             "created_by": "TEXT",

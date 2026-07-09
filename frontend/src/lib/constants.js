@@ -32,20 +32,26 @@ export const LIFECYCLE = [
 
 export const LIFECYCLE_COLOR = LIFECYCLE.reduce((m, p) => ((m[p.key] = p.color), m), {});
 
+// Fallback role labels/colours (the live roles table is authoritative; these are
+// used before it loads and for built-ins). Aligned with the mobile hierarchy.
 export const ROLE_LABEL = {
   ceo: "CEO",
   admin: "Admin",
-  manager: "Manager",
+  marketing_head: "Marketing Head",
+  manager: "Project Manager",
   sales: "Sales Executive",
+  production_engineer: "Production Engineer",
   designer: "Designer",
-  supervisor: "Site Supervisor",
+  supervisor: "Site Manager",
 };
 
 export const ROLE_COLOR = {
   ceo: "#5C3A21",
   admin: "#C2683D",
+  marketing_head: "#7B4B94",
   manager: "#8A9A5B",
   sales: "#8A5A3B",
+  production_engineer: "#3B6E8F",
   designer: "#9C6644",
   supervisor: "#6B705C",
 };

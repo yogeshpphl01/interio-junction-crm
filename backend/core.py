@@ -91,11 +91,20 @@ ROLE_MANAGER = "manager"
 #   accounts. A CEO account itself can never be deactivated or deleted.
 # </role>
 ROLE_CEO = "ceo"
+# <mobile-hierarchy roles>
+#   For the two-app mobile ecosystem (see docs/mobile-apps). Marketing Head ⊇
+#   Project Manager (== manager) PLUS ad-campaign Excel upload + silent oversight.
+#   Production Engineer ⊇ Designer PLUS factory/cut-list/QR/production. Additive:
+#   the existing web-CRM roles are unchanged in behaviour.
+# </mobile-hierarchy>
+ROLE_MARKETING_HEAD = "marketing_head"
+ROLE_PRODUCTION_ENGINEER = "production_engineer"
 # Roles with full company-wide lead visibility + admin-equivalent reach.
 ADMIN_ROLES = (ROLE_CEO, ROLE_ADMIN)
-FULL_VISIBILITY_ROLES = (ROLE_CEO, ROLE_ADMIN, ROLE_MANAGER)
+FULL_VISIBILITY_ROLES = (ROLE_CEO, ROLE_ADMIN, ROLE_MANAGER, ROLE_MARKETING_HEAD)
 # Built-in roles. Custom categories (Module 7) are added on top of these.
-BUILTIN_ROLES = [ROLE_CEO, ROLE_ADMIN, ROLE_MANAGER, ROLE_SALES, ROLE_DESIGNER, ROLE_SUPERVISOR]
+BUILTIN_ROLES = [ROLE_CEO, ROLE_ADMIN, ROLE_MARKETING_HEAD, ROLE_MANAGER, ROLE_SALES,
+                 ROLE_PRODUCTION_ENGINEER, ROLE_DESIGNER, ROLE_SUPERVISOR]
 
 DEFAULT_AUTOMATIONS = [
     {"key": "auto_assign_supervisor", "name": "Auto-assign Site Supervisor", "description": "When a lead enters Site Measurement, auto-assign an available supervisor.", "enabled": True},
