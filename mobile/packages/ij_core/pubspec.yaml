@@ -1,0 +1,18 @@
+name: ij_core
+description: Shared API client, auth, and models for the Interio Junction mobile apps.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  dio: ^5.4.0
+  flutter_secure_storage: ^9.0.0
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+  flutter_test:
+    sdk: flutter
