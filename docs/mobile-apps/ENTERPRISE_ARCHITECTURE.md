@@ -489,7 +489,7 @@ erDiagram
 - **project_members** ⭐ (`project_id`, `user_id`, `role_in_project`, `visibility[normal/hidden]`) — **`hidden` is how the invisible MH is stored.**
 - **payments** ♻/⭐ (`type[booking/milestone]`, `amount`, `gateway_ref`, `status`, `verified_by`, `receipt_ref`).
 - **design_revisions** ♻ (+ `customer_approved_at`).
-- **cutlists** ⭐, **parts** ⭐ (`part_uid` = human+QR id e.g. `IJ‑{project}‑P‑0001`, `material`, `dims`, `qty`, `status`), **qr_codes** ⭐ (`part_id`, `payload_signed`, `png_ref`), **part_scans** ⭐ (`part_id`, `station`, `stage`, `scanned_by`, `ts`, `result`) — the traceability spine (§14).
+- **cutlists** ⭐, **parts** ⭐ (`part_uid` = **Infurnia's panel/part id** (ingested, not minted), `source="infurnia"`, `infurnia_ref`, `material`, `dims`, `qty`, `status`), **qr_codes** ⭐ (now stores the **decoded value of Infurnia's QR** for scan‑matching, not a generated PNG), **part_scans** ⭐ (`part_uid`, `station`, `stage`, `scanned_by`, `ts`, `result`) — the traceability spine (§14, **Infurnia integration**).
 - **checklists** ⭐ + **checklist_items** ⭐ (`type[factory/pack/load/unload/install/closure]`, `item`, `checked`, `photo_ref`, `signature_ref`).
 - **tickets** ⭐ + **ticket_media** ⭐ (`kind[damaged/missing/fitting]`, `priority`, `status`, `raised_by(SM)`, `assigned_to(PE)`, photos/videos).
 - **expenses** ⭐ (`amount`, `bill_photo_ref`, `status`, `approved_by(PM)`).
@@ -637,45 +637,54 @@ sequenceDiagram
 
 ---
 
-# 14. QR Tracking Architecture
+# 14. QR Tracking Architecture — Infurnia Integration
 
-Implements **Rule 4**: every manufactured part has a **Unique Part ID + QR** and a fully traceable lifecycle updated by scanning. This is the bridge between the digital cut list and the physical factory/site — the operational heart of the system.
+> 🔄 **Architecture update (owner decision):** the company has adopted **Infurnia** (infurnia.com), a cloud interior‑design → manufacturing platform, which **generates the parts, cut list, CNC output and the QR panel labels itself**. So **our app no longer *generates* QR** (the earlier "we mint a signed Part ID + QR" design and the web‑CRM Label‑Generator slot are **retired**). Instead, **we ingest Infurnia's parts + QR identity and own the cross‑project, whole‑journey production tracking** — which is the value Infurnia does not provide (Infurnia tracks *machines*; we track *the customer's project*).
 
-**14.1 Identity.** When the Production Engineer publishes a cut list, the system generates one **`part_uid`** per part: human‑readable + globally unique, e.g. `IJ-{projectCode}-P-0142`. The QR encodes a **signed** payload (`part_uid` + short HMAC), so a scanned code can be verified as genuinely issued by us (anti‑spoof) without a DB round‑trip to reject fakes.
+**14.1 What Infurnia gives us (verified from Infurnia MES / Help Center).** From the 3D design, Infurnia produces: an optimised **cut list** + **BOM**, **board nesting layouts**, machine‑specific **CNC drilling/routing** outputs (Homag, Biesse, SCM, Felder, KDT…), and **panel labels containing a QR/barcode**, downloadable as **PDF**. The label is **template‑configurable** — you toggle which fields print (e.g., Project ID, panel/part ID, cut size vs finished size, material, edge‑banding, grain). Infurnia's MES also tracks *sawing/cutting* on the floor. So Infurnia = **"what to make, how to cut it, and the labelled part identity."**
 
-**14.2 Part state machine (each transition = a scan event).**
+**14.2 Division of responsibility (no duplication).**
+| Concern | Owner |
+|---|---|
+| Design → cut list → BOM → nesting → CNC | **Infurnia** |
+| Part identity + **QR panel label** generation | **Infurnia** |
+| Machine‑level cutting/drilling status | **Infurnia MES** (optionally mirrored to us) |
+| **QC → Assembly → Packing → Dispatch → Site unload → Install → Tickets/Remanufacture** | **Our app** |
+| Tie every part to the **customer project, chat, Client App, dispatch & site reconciliation** | **Our app** |
+
+**14.3 Ingestion — how Infurnia data enters our system.** Two paths, both landing in our `parts`/`cutlists` tables:
+- **Now (manual export):** the Production Engineer exports Infurnia's **cut list (Excel/CSV)** + **panel‑label PDF** and uploads them in the Company App (this replaces the web‑CRM Cutlist/BOQ/BOM upload). We parse each row into a `parts` record; **`part_uid` = Infurnia's panel/part ID** (we store it verbatim so our scans match Infurnia's printed QR). `parts.source = "infurnia"`, plus `infurnia_ref` for the original panel id/order.
+- **Later (API):** if Infurnia exposes an API/webhook, we pull parts/orders directly (no manual export). Designed as a pluggable `PartsSource` interface so manual‑export vs API is a config swap.
+
+**14.4 The QR we scan is Infurnia's.** Our scanner reads the **Infurnia‑printed QR**, extracts its identifier, and matches it to the ingested `parts` row to record a stage transition. ⚠ **Open item to confirm from a real label:** the exact payload Infurnia's QR encodes (a bare panel ID, a structured string, or a URL). We need one sample scan (or the label‑template setting) to finalise the parser — a 1‑line adapter. Until confirmed, ingestion + manual part selection still work; QR‑scan auto‑match switches on once the payload format is known.
+
+**14.5 Part journey we track (each transition = a scan or status event).**
 ```mermaid
 stateDiagram-v2
-  [*] --> Queued: cutlist.published
-  Queued --> Cutting
-  Cutting --> Edgebanding
-  Edgebanding --> Drilling
-  Drilling --> QC_Part: quality check (part)
-  QC_Part --> Rework: fail
-  Rework --> QC_Part
-  QC_Part --> Assembly: pass
-  Assembly --> QC_Assembly
-  QC_Assembly --> Packed
+  [*] --> Ingested: Infurnia cutlist imported (parts + QR ids)
+  Ingested --> InProductionInfurnia: cutting/drilling (Infurnia MES; optional mirror)
+  InProductionInfurnia --> QC: our first scan station
+  QC --> Rework: fail
+  Rework --> QC
+  QC --> Assembly: pass
+  Assembly --> Packed
   Packed --> Loaded
   Loaded --> Dispatched
-  Dispatched --> Unloaded: site scan
+  Dispatched --> Unloaded: site scan (reconcile vs loaded)
   Unloaded --> Installed
   Installed --> [*]
   Unloaded --> TicketRaised: damaged/missing
   Installed --> TicketRaised: fitting error
-  TicketRaised --> Remanufacture --> Queued
+  TicketRaised --> Remanufacture: re-cut in Infurnia -> re-ingest
 ```
-*(Stations are configurable per factory; the diagram is the reference flow.)*
 
-**14.3 Scan event model.** `part_scans(part_id, station, from_stage, to_stage, scanned_by, device_id, ts, gps?, result[pass/fail/na], note, photo_ref?)`. Scans are **append‑only** (immutable history) and **idempotent per (part, station)** so a double‑scan doesn't double‑advance. Offline scans queue on the device and sync when connectivity returns (factories have dead zones).
+**14.6 Scan event model.** `part_scans(part_uid, station, from_stage, to_stage, scanned_by, device_id, ts, gps?, result, note, photo_ref?)` — **append‑only**, **idempotent per (part, station)**. Offline scans queue and sync (factory/site dead zones). Keyed on `part_uid` (Infurnia's id).
 
-**14.4 Traceability queries** (BigQuery + Cloud SQL): *where is part IJ‑…‑P‑0142 right now?*, *which parts of Project X are still in Cutting?*, *show every scan of this part with who/when/where*, *reconcile designed vs cut vs packed vs unloaded vs installed counts*. The **reconciliation view** powers the load/unload checklist (§18) and instantly reveals missing parts.
+**14.7 Traceability & reconciliation.** *Where is Infurnia panel `<id>` now? Which parts of Project X are still pre‑QC? Reconcile ingested vs packed vs loaded vs unloaded vs installed.* The **load/unload reconciliation** (§18) compares site‑unload scans to the loaded manifest and auto‑flags missing/short‑shipped panels — this is the biggest operational payoff and it works entirely off Infurnia's part identity.
 
-**14.5 Label generation.** A Cloud Run **Label Service** turns the cut list into printable label sheets (part id, QR PNG, project, material, dims) — this is where **your existing "Label Generator" solution plugs in** (the web CRM already reserves this slot). Output: PDF/ZPL for factory label printers.
+**14.8 Progress roll‑up.** Part states aggregate to a **project production % complete** (PE/PM see detail; the **customer sees a coarse "In production" bar**, never panel internals). Each scan publishes `production-events` → transparent‑trio notifications (Rule 3) + the customer timeline.
 
-**14.6 Progress roll‑up.** Part‑level states aggregate to a **project production % complete**, shown to PE/PM in full detail and to the **customer as a coarse "In production" bar** (never part‑level internals). Every scan publishes `production-events` → notifications to the transparent trio (Rule 3) + project timeline.
-
-**14.7 Security.** Signed QR payloads; scan endpoint requires `production.scan_update` + device attestation (App Check); rate‑limited; GPS/photo optional evidence; scans are audited. A stolen phone cannot forge progress (server validates role, station sequence sanity, and HMAC).
+**14.9 Security (adapted).** Because the QR is Infurnia's (not our signed payload), we authenticate the **scan**, not the code: the scan endpoint requires `production.manage` + App Check device attestation, the scanned id must match an **ingested part of a project the scanner is assigned to**, station‑sequence sanity is validated, and every scan is audited. A stolen phone still can't forge progress for a project it isn't on, and can't invent parts that were never ingested from Infurnia.
 
 ---
 
@@ -748,13 +757,12 @@ sequenceDiagram
 
 Owned by the **Production Engineer** (⊇ Designer). Turns the customer‑approved final design into physical, tracked, quality‑checked, dispatched units.
 
-**17.1 Flow.**
+**17.1 Flow.** (Design → cut list → CNC → **QR labels** are produced in **Infurnia**; our app ingests them and tracks the journey — see §14.)
 ```mermaid
 graph TD
-  A[Final design approved by customer] --> B[PE generates Cut List - PDF]
-  B --> C[System issues Part IDs + signed QR labels]
-  C --> D[Label Service prints labels]
-  D --> E[Manufacturing - scan at each station]
+  A[Final design approved by customer] --> B[PE produces cut list + CNC + QR labels in INFURNIA]
+  B --> C[PE ingests Infurnia cut list into our app -> parts + QR ids]
+  C --> E[Manufacturing - Infurnia MES cuts; our app scans from QC onward]
   E --> F[Part QC - scan pass/fail]
   F -->|fail| E
   F -->|pass| G[Assembly + Assembly QC]
@@ -1128,6 +1136,7 @@ Chosen for **Google‑native fit, one team/one codebase, and maximum reuse of th
 5. **Estimate pricing logic comes later** from your structured Excel; the engine is built pluggable to receive it.
 6. **RPO ≤ 5 min / RTO ≤ 1 hr** are proposed targets, not yet ratified by you.
 7. **Single region (India) primary** with cross‑region DR copies; data residency in India.
+8. **Infurnia is the design→manufacturing + QR source** (owner decision). Our app **ingests** Infurnia's cut list/parts/QR and owns the whole‑journey tracking (§14). One open item: confirm Infurnia's **QR payload format** from a real label to finalise the scan‑match adapter; and whether Infurnia exposes an **API** (vs. manual export) for automated ingestion.
 
 ### 30.2 Conflicts with the web CRM (resolved in favor of your new instructions, per your directive)
 - **Roles:** the CRM's `manager/sales/designer/supervisor` become PM/SE/DES/SM; we **add Marketing Head and Production Engineer**, and model the two superset relationships. (Custom‑role engine already supports adding these.)

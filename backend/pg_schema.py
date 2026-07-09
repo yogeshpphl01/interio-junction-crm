@@ -444,22 +444,30 @@ SCHEMA: dict[str, dict] = {
         "indexes": [{"cols": [("estimate_id", 1)], "unique": False}],
     },
 
-    # <table name="cutlists"><purpose>A published cut list (PDF) per project; parent of parts.</purpose></table>
+    # <table name="cutlists"><purpose>A cut list imported from Infurnia (PDF/Excel) per project; parent of parts.</purpose></table>
     "cutlists": {
         "pk": "id",
         "columns": {
             "id": "TEXT", "project_id": "TEXT", "pdf_ref": "TEXT",
+            "source": "TEXT",            # e.g. "infurnia"
+            "infurnia_ref": "TEXT",      # Infurnia order/design reference
             "created_by": "TEXT", "part_count": "INTEGER", "created_at": "TEXT",
         },
         "json": [], "indexes": [{"cols": [("project_id", 1)], "unique": False}],
     },
 
-    # <table name="parts"><purpose>One row per manufactured part with a unique Part ID (QR traceability spine).</purpose></table>
+    # <table name="parts">
+    #   <purpose>One row per manufactured panel/part. Identity is INGESTED from
+    #   Infurnia (part_uid = Infurnia's panel/part id), not minted by us — see
+    #   docs/mobile-apps §14. The traceability spine for production tracking.</purpose>
+    # </table>
     "parts": {
         "pk": "id",
         "columns": {
             "id": "TEXT", "cutlist_id": "TEXT", "project_id": "TEXT",
-            "part_uid": "TEXT",   # human + QR id, e.g. IJ-<projectCode>-P-0001
+            "part_uid": "TEXT",          # Infurnia panel/part id (matches the printed QR)
+            "source": "TEXT",            # e.g. "infurnia"
+            "infurnia_ref": "TEXT",      # original Infurnia panel/order id
             "name": "TEXT", "material": "TEXT", "dimensions": "TEXT",
             "quantity": "INTEGER", "status": "TEXT", "current_station": "TEXT",
             "created_at": "TEXT", "updated_at": "TEXT",
@@ -473,12 +481,17 @@ SCHEMA: dict[str, dict] = {
         ],
     },
 
-    # <table name="qr_codes"><purpose>Signed QR payload + label image per part.</purpose></table>
+    # <table name="qr_codes">
+    #   <purpose>The DECODED value of Infurnia's printed QR per part (so our scans
+    #   match), plus a reference to the Infurnia label. We do NOT generate QR.</purpose>
+    # </table>
     "qr_codes": {
         "pk": "id",
         "columns": {
             "id": "TEXT", "part_id": "TEXT", "part_uid": "TEXT",
-            "payload_signed": "TEXT", "png_ref": "TEXT", "created_at": "TEXT",
+            "qr_value": "TEXT",          # exact decoded value Infurnia's QR encodes
+            "label_ref": "TEXT",         # Infurnia panel-label PDF/image reference
+            "created_at": "TEXT",
         },
         "json": [],
         "indexes": [
