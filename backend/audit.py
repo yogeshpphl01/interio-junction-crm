@@ -29,6 +29,7 @@ ACTIONS = {
     "fixture.created", "fixture.deleted",
     "estimate.created", "estimate.submitted", "estimate.approved",
     "estimate.rejected", "estimate.shared", "estimate.accepted",
+    "cutlist.ingested", "part.scanned",
     "document.uploaded", "document.downloaded",
     "automation.toggled", "automation.run_checks",
     "import.leads",
