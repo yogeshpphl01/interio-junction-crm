@@ -26,6 +26,7 @@ from core import (
     ensure_lead_visible, visible_lead_ids, now_iso,
 )
 from audit import log_audit
+from push import send_push
 
 router = APIRouter()
 
@@ -188,7 +189,14 @@ async def reject_estimate(estimate_id: str, user: dict = Depends(require_permiss
 @router.post("/estimates/{estimate_id}/share")
 async def share_estimate(estimate_id: str, user: dict = Depends(require_permission("estimates.create"))):
     """SE shares an approved estimate with the customer. (PDF generation later.)"""
-    return await _transition(estimate_id, user, allow_from={APPROVED}, to=SHARED, action="shared")
+    est = await _transition(estimate_id, user, allow_from={APPROVED}, to=SHARED, action="shared")
+    # Nudge the customer on the Client App (no-op until they've linked a device).
+    lead = await db.leads.find_one({"id": est["lead_id"]}, {"_id": 0, "customer_id": 1})
+    if lead and lead.get("customer_id"):
+        await send_push("customer", lead["customer_id"], "New estimate to review",
+                        "Your estimate is ready — tap to review and accept.",
+                        data={"type": "estimate", "estimate_id": estimate_id}, lead_id=est["lead_id"])
+    return est
 
 
 @router.post("/estimates/{estimate_id}/accept")

@@ -22,6 +22,7 @@ from core import (
     next_project_code, run_workflow_auto_assign_supervisor, derive_lifecycle_phase,
 )
 from audit import log_audit
+from push import send_push
 
 router = APIRouter()
 
@@ -113,6 +114,12 @@ async def record_booking_payment(lead_id: str, payload: BookingPaymentIn, reques
     })
     await log_audit(db, user, "payment.received", "project", project_id, project_code,
                     {"lead_id": lead_id, "amount": amount, "method": payload.method, "channel": payload.method}, request)
+
+    # Confirm to the customer on the Client App (no-op until they've linked a device).
+    if lead.get("customer_id"):
+        await send_push("customer", lead["customer_id"], "Booking confirmed 🎉",
+                        f"We've received your booking payment — project {project_code} is now active.",
+                        data={"type": "booking", "project_id": project_id}, lead_id=lead_id)
 
     payment.pop("_id", None)
     return {

@@ -457,6 +457,35 @@ SCHEMA: dict[str, dict] = {
         ],
     },
 
+    # <table name="device_tokens">
+    #   <purpose>
+    #     FCM push registration tokens for BOTH mobile apps. owner_type +
+    #     owner_id point at either a customer (Client App) or a user (Company
+    #     App); the token is unique so re-registering the same device updates in
+    #     place. Deactivated (not deleted) when FCM reports the token stale or the
+    #     app logs out, so send_push only ever fans out to live devices.
+    #   </purpose>
+    # </table>
+    "device_tokens": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "owner_type": "TEXT",     # "customer" | "user"
+            "owner_id": "TEXT",
+            "token": "TEXT",          # FCM registration token
+            "platform": "TEXT",       # android | ios | web
+            "app": "TEXT",            # "client" | "company"
+            "is_active": "BOOLEAN",
+            "last_seen_at": "TEXT",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("token", 1)], "unique": True},
+            {"cols": [("owner_id", 1)], "unique": False},
+        ],
+    },
+
     # <table name="estimates"><purpose>Versioned estimate header; workflow draft->submitted->approved->shared->accepted->revised.</purpose></table>
     "estimates": {
         "pk": "id",

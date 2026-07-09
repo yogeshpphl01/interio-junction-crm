@@ -44,6 +44,7 @@ from auth_utils import (
     create_customer_access_token, create_customer_refresh_token,
 )
 from audit import log_audit
+from push import register_device, unregister_device
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -288,6 +289,25 @@ async def client_logout(request: Request, customer: dict = Depends(get_current_c
 @router.get("/client/me")
 async def client_me(customer: dict = Depends(get_current_customer)):
     return {"customer": customer}
+
+
+class DeviceIn(BaseModel):
+    token: str
+    platform: Optional[str] = None
+
+
+@router.post("/client/devices")
+async def client_register_device(body: DeviceIn, customer: dict = Depends(get_current_customer)):
+    """Register this device's FCM token so the customer can receive push notifications."""
+    row = await register_device("customer", customer["id"], body.token, body.platform, app="client")
+    return {"ok": True, "device_id": row["id"]}
+
+
+@router.delete("/client/devices")
+async def client_unregister_device(body: DeviceIn, customer: dict = Depends(get_current_customer)):
+    """Deactivate this device's token (logout / notifications off)."""
+    await unregister_device(body.token)
+    return {"ok": True}
 
 
 # ============================ SCOPED READS + ACTIONS ============================
