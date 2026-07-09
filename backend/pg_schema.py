@@ -376,6 +376,200 @@ SCHEMA: dict[str, dict] = {
         ],
     },
 
+    # ========================================================================
+    # <mobile-ecosystem tables>
+    #   New tables for the two-app mobile ecosystem (docs/mobile-apps). Additive —
+    #   the web CRM never reads them. Existing tables are reused where they fit
+    #   (payments, documents, design_revisions, site_measurements, fixtures).
+    # </mobile-ecosystem>
+    # ========================================================================
+
+    # <table name="marketing_campaigns"><purpose>One row per ad-campaign Excel the Marketing Head imports.</purpose></table>
+    "marketing_campaigns": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "name": "TEXT", "source": "TEXT",   # e.g. facebook
+            "sheet_ref": "TEXT", "uploaded_by": "TEXT", "lead_count": "INTEGER",
+            "created_at": "TEXT",
+        },
+        "json": [], "indexes": [{"cols": [("created_at", -1)], "unique": False}],
+    },
+
+    # <table name="customers"><purpose>The customer's authenticated identity for the Client App. Phone + Email are the primary keys.</purpose></table>
+    "customers": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "lead_id": "TEXT", "full_name": "TEXT",
+            "phone": "TEXT", "email": "TEXT", "auth_uid": "TEXT",
+            "is_active": "BOOLEAN", "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("phone", 1)], "unique": True},
+            {"cols": [("email", 1)], "unique": True},
+            {"cols": [("lead_id", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="estimates"><purpose>Versioned estimate header; workflow draft->submitted->approved->shared->accepted->revised.</purpose></table>
+    "estimates": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "lead_id": "TEXT", "project_id": "TEXT",
+            "version": "INTEGER", "status": "TEXT", "currency": "TEXT",
+            "subtotal": "DOUBLE PRECISION", "discount": "DOUBLE PRECISION",
+            "tax": "DOUBLE PRECISION", "total": "DOUBLE PRECISION",
+            "valid_until": "TEXT", "pdf_ref": "TEXT",
+            "created_by": "TEXT", "approved_by": "TEXT",
+            "created_at": "TEXT", "updated_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("lead_id", 1)], "unique": False},
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("status", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="estimate_items"><purpose>Line items of an estimate (the priced BOQ rows).</purpose></table>
+    "estimate_items": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "estimate_id": "TEXT", "category": "TEXT",
+            "description": "TEXT", "unit": "TEXT", "quantity": "DOUBLE PRECISION",
+            "rate": "DOUBLE PRECISION", "amount": "DOUBLE PRECISION",
+            "meta": "JSONB", "created_at": "TEXT",
+        },
+        "json": ["meta"],
+        "indexes": [{"cols": [("estimate_id", 1)], "unique": False}],
+    },
+
+    # <table name="cutlists"><purpose>A published cut list (PDF) per project; parent of parts.</purpose></table>
+    "cutlists": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "project_id": "TEXT", "pdf_ref": "TEXT",
+            "created_by": "TEXT", "part_count": "INTEGER", "created_at": "TEXT",
+        },
+        "json": [], "indexes": [{"cols": [("project_id", 1)], "unique": False}],
+    },
+
+    # <table name="parts"><purpose>One row per manufactured part with a unique Part ID (QR traceability spine).</purpose></table>
+    "parts": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "cutlist_id": "TEXT", "project_id": "TEXT",
+            "part_uid": "TEXT",   # human + QR id, e.g. IJ-<projectCode>-P-0001
+            "name": "TEXT", "material": "TEXT", "dimensions": "TEXT",
+            "quantity": "INTEGER", "status": "TEXT", "current_station": "TEXT",
+            "created_at": "TEXT", "updated_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("part_uid", 1)], "unique": True},
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("cutlist_id", 1)], "unique": False},
+            {"cols": [("status", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="qr_codes"><purpose>Signed QR payload + label image per part.</purpose></table>
+    "qr_codes": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "part_id": "TEXT", "part_uid": "TEXT",
+            "payload_signed": "TEXT", "png_ref": "TEXT", "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("part_id", 1)], "unique": True},
+            {"cols": [("part_uid", 1)], "unique": True},
+        ],
+    },
+
+    # <table name="part_scans"><purpose>Append-only scan history — every factory/site stage transition of a part.</purpose></table>
+    "part_scans": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "part_id": "TEXT", "part_uid": "TEXT", "project_id": "TEXT",
+            "station": "TEXT", "from_stage": "TEXT", "to_stage": "TEXT",
+            "scanned_by": "TEXT", "device_id": "TEXT", "result": "TEXT",
+            "note": "TEXT", "photo_ref": "TEXT", "gps": "TEXT", "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("part_id", 1)], "unique": False},
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("created_at", -1)], "unique": False},
+        ],
+    },
+
+    # <table name="tickets"><purpose>Site/production issues (damaged/missing/fitting) raised by Site Manager to Production Engineer.</purpose></table>
+    "tickets": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "project_id": "TEXT", "part_uid": "TEXT",
+            "kind": "TEXT", "priority": "TEXT", "status": "TEXT",
+            "title": "TEXT", "description": "TEXT",
+            "raised_by": "TEXT", "assigned_to": "TEXT",
+            "created_at": "TEXT", "resolved_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("status", 1)], "unique": False},
+            {"cols": [("assigned_to", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="ticket_media"><purpose>Photos/videos attached to a ticket.</purpose></table>
+    "ticket_media": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "ticket_id": "TEXT", "kind": "TEXT",
+            "storage_ref": "TEXT", "uploaded_by": "TEXT", "created_at": "TEXT",
+        },
+        "json": [], "indexes": [{"cols": [("ticket_id", 1)], "unique": False}],
+    },
+
+    # <table name="expenses"><purpose>Site expense bills (photo) with PM approval workflow.</purpose></table>
+    "expenses": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "project_id": "TEXT", "amount": "DOUBLE PRECISION",
+            "currency": "TEXT", "note": "TEXT", "bill_photo_ref": "TEXT",
+            "status": "TEXT", "submitted_by": "TEXT", "approved_by": "TEXT",
+            "created_at": "TEXT", "decided_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("status", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="checklists"><purpose>Factory/pack/load/unload/install/closure checklists with e-signature.</purpose></table>
+    "checklists": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "project_id": "TEXT", "type": "TEXT", "status": "TEXT",
+            "signed_by": "TEXT", "signature_ref": "TEXT",
+            "created_at": "TEXT", "completed_at": "TEXT",
+        },
+        "json": [], "indexes": [{"cols": [("project_id", 1)], "unique": False}],
+    },
+
+    # <table name="checklist_items"><purpose>Individual checklist line items with photo evidence.</purpose></table>
+    "checklist_items": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "checklist_id": "TEXT", "label": "TEXT",
+            "checked": "BOOLEAN", "photo_ref": "TEXT", "note": "TEXT",
+            "checked_by": "TEXT", "checked_at": "TEXT",
+        },
+        "json": [], "indexes": [{"cols": [("checklist_id", 1)], "unique": False}],
+    },
+
     # <table name="settings"><purpose>Key/value app config (score weights, notifications).</purpose></table>
     "settings": {
         "pk": "key",
