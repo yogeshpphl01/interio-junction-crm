@@ -4,9 +4,9 @@ import 'package:ij_core/ij_core.dart';
 import '../services.dart';
 import '../auth/login_screen.dart';
 
-/// The employee home: a role-aware set of "things to act on" buckets
-/// (contract §5.2). Only buckets the signed-in user is permitted to see are
-/// returned by the API, so this UI is automatically correct for every role.
+/// Employee home: role-aware "things to act on" buckets (contract §5.2). Tapping
+/// an item opens the right action sheet (approve/reject an estimate or expense,
+/// resolve a ticket); the list refreshes after any action.
 class WorklistScreen extends StatefulWidget {
   const WorklistScreen({super.key});
 
@@ -15,13 +15,7 @@ class WorklistScreen extends StatefulWidget {
 }
 
 class _WorklistScreenState extends State<WorklistScreen> {
-  late Future<List<WorklistBucket>> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = Services.i.data.worklist();
-  }
+  late Future<List<WorklistBucket>> _future = Services.i.data.worklist();
 
   Future<void> _refresh() async {
     final next = Services.i.data.worklist();
@@ -38,14 +32,25 @@ class _WorklistScreenState extends State<WorklistScreen> {
     );
   }
 
+  Future<void> _openActions(String bucketKey, Map<String, dynamic> item) async {
+    if (bucketKey == 'my_followups') return; // informational only
+    final acted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _ActionSheet(bucketKey: bucketKey, item: item),
+    );
+    if (acted == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Done ✓')));
+      _refresh();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Work'),
-        actions: [
-          IconButton(icon: const Icon(Icons.logout), tooltip: 'Sign out', onPressed: _logout),
-        ],
+        actions: [IconButton(icon: const Icon(Icons.logout), tooltip: 'Sign out', onPressed: _logout)],
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,
@@ -56,42 +61,39 @@ class _WorklistScreenState extends State<WorklistScreen> {
               return const Center(child: CircularProgressIndicator());
             }
             if (snap.hasError) {
-              return _errorView('$snap'.contains('401')
-                  ? 'Your session expired. Please sign in again.'
-                  : 'Could not load your work.\n${snap.error}');
+              return ListView(children: [
+                const SizedBox(height: 140),
+                const Icon(Icons.error_outline, size: 48, color: Colors.black26),
+                const SizedBox(height: 12),
+                Center(child: Text('${snap.error}', style: const TextStyle(color: Colors.black54))),
+                const SizedBox(height: 12),
+                Center(child: FilledButton.tonal(onPressed: _refresh, child: const Text('Retry'))),
+              ]);
             }
             final buckets = snap.data ?? const [];
             if (buckets.isEmpty) {
-              return _scrollable(const Center(child: Text('Nothing needs your attention. 🎉')));
+              return ListView(children: const [
+                SizedBox(height: 160),
+                Center(child: Text('Nothing needs your attention. 🎉')),
+              ]);
             }
             return ListView(
               padding: const EdgeInsets.all(16),
-              children: [for (final b in buckets) _BucketSection(b)],
+              children: [for (final b in buckets) _BucketSection(bucket: b, onTap: _openActions)],
             );
           },
         ),
       ),
     );
   }
-
-  Widget _scrollable(Widget child) =>
-      ListView(children: [const SizedBox(height: 160), child]);
-
-  Widget _errorView(String msg) => _scrollable(Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(children: [
-          const Icon(Icons.error_outline, size: 48, color: Colors.black26),
-          const SizedBox(height: 12),
-          Text(msg, textAlign: TextAlign.center, style: const TextStyle(color: Colors.black54)),
-          const SizedBox(height: 12),
-          FilledButton.tonal(onPressed: _refresh, child: const Text('Retry')),
-        ]),
-      ));
 }
 
 class _BucketSection extends StatelessWidget {
-  const _BucketSection(this.bucket);
+  const _BucketSection({required this.bucket, required this.onTap});
   final WorklistBucket bucket;
+  final void Function(String bucketKey, Map<String, dynamic> item) onTap;
+
+  bool get _actionable => bucket.key != 'my_followups';
 
   @override
   Widget build(BuildContext context) {
@@ -100,14 +102,11 @@ class _BucketSection extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
-          child: Row(
-            children: [
-              Text(bucket.label,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              const SizedBox(width: 8),
-              _CountBadge(bucket.count),
-            ],
-          ),
+          child: Row(children: [
+            Text(bucket.label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(width: 8),
+            _CountBadge(bucket.count),
+          ]),
         ),
         if (bucket.items.isEmpty)
           const Padding(
@@ -117,31 +116,24 @@ class _BucketSection extends StatelessWidget {
         else
           Card(
             margin: const EdgeInsets.only(bottom: 20),
-            child: Column(
-              children: [
-                for (final item in bucket.items)
-                  ListTile(
-                    dense: true,
-                    title: Text(_title(item)),
-                    subtitle: Text(_subtitle(bucket.key, item)),
-                    trailing: const Icon(Icons.chevron_right, size: 18),
-                    onTap: () {}, // drill-in screens are the next to build
-                  ),
-              ],
-            ),
+            child: Column(children: [
+              for (final item in bucket.items)
+                ListTile(
+                  dense: true,
+                  title: Text(_title(item)),
+                  subtitle: Text(_subtitle(bucket.key, item)),
+                  trailing: _actionable ? const Icon(Icons.chevron_right, size: 18) : null,
+                  onTap: _actionable ? () => onTap(bucket.key, item) : null,
+                ),
+            ]),
           ),
       ],
     );
   }
 
-  String _title(Map<String, dynamic> j) => (j['lead_name'] ??
-          j['full_name'] ??
-          j['title'] ??
-          j['milestone'] ??
-          j['note'] ??
-          j['id'] ??
-          '—')
-      .toString();
+  String _title(Map<String, dynamic> j) =>
+      (j['lead_name'] ?? j['full_name'] ?? j['title'] ?? j['milestone'] ?? j['note'] ?? j['id'] ?? '—')
+          .toString();
 
   String _subtitle(String key, Map<String, dynamic> j) {
     switch (key) {
@@ -172,5 +164,124 @@ class _CountBadge extends StatelessWidget {
       child: Text('$count',
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
     );
+  }
+}
+
+/// The per-item action sheet. Approve/reject an estimate or expense, or resolve a
+/// ticket (with an optional "send back to production" flag). Pops `true` on success.
+class _ActionSheet extends StatefulWidget {
+  const _ActionSheet({required this.bucketKey, required this.item});
+  final String bucketKey;
+  final Map<String, dynamic> item;
+
+  @override
+  State<_ActionSheet> createState() => _ActionSheetState();
+}
+
+class _ActionSheetState extends State<_ActionSheet> {
+  bool _busy = false;
+  bool _remanufacture = false;
+  String? _error;
+
+  String get _id => widget.item['id'].toString();
+
+  Future<void> _do(Future<void> Function() action) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await action();
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      setState(() {
+        _error = e.message;
+        _busy = false;
+      });
+    } catch (_) {
+      setState(() {
+        _error = 'Something went wrong.';
+        _busy = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = Services.i.data;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(_heading(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 16),
+          if (widget.bucketKey == 'my_open_tickets')
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _remanufacture,
+              onChanged: _busy ? null : (v) => setState(() => _remanufacture = v ?? false),
+              title: const Text('Send the linked part back to production'),
+            ),
+          if (_error != null) ...[
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 8),
+          ],
+          if (_busy)
+            const Padding(padding: EdgeInsets.all(8), child: Center(child: CircularProgressIndicator()))
+          else ...[
+            for (final a in _actions(data))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: a,
+              ),
+          ],
+          TextButton(
+            onPressed: _busy ? null : () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _heading() {
+    switch (widget.bucketKey) {
+      case 'estimate_approvals':
+        return 'Estimate v${widget.item['version'] ?? '?'} · ₹${widget.item['total'] ?? '—'}';
+      case 'expense_approvals':
+        return 'Expense · ₹${widget.item['amount'] ?? '—'}';
+      case 'my_open_tickets':
+        return widget.item['title']?.toString() ?? 'Ticket';
+      default:
+        return 'Action';
+    }
+  }
+
+  List<Widget> _actions(CompanyRepository data) {
+    switch (widget.bucketKey) {
+      case 'estimate_approvals':
+        return [
+          FilledButton(onPressed: () => _do(() => data.approveEstimate(_id)), child: const Text('Approve')),
+          OutlinedButton(onPressed: () => _do(() => data.rejectEstimate(_id)), child: const Text('Send back for changes')),
+        ];
+      case 'expense_approvals':
+        return [
+          FilledButton(onPressed: () => _do(() => data.approveExpense(_id)), child: const Text('Approve')),
+          OutlinedButton(onPressed: () => _do(() => data.rejectExpense(_id)), child: const Text('Reject')),
+        ];
+      case 'my_open_tickets':
+        return [
+          FilledButton(
+              onPressed: () => _do(() => data.resolveTicket(_id, remanufacture: _remanufacture)),
+              child: const Text('Mark resolved')),
+        ];
+      default:
+        return const [];
+    }
   }
 }

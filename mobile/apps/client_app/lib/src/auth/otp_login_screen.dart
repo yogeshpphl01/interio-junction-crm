@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ij_core/ij_core.dart';
 
 import '../services.dart';
-import '../home/projects_screen.dart';
+import '../home/home_shell.dart';
 
 /// Two-step phone + OTP login (contract §4.1).
 class OtpLoginScreen extends StatefulWidget {
@@ -44,7 +44,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen> {
         await Services.i.auth.verifyOtp(_phone.text.trim(), _code.text.trim());
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const ProjectsScreen()),
+          MaterialPageRoute(builder: (_) => const HomeShell()),
         );
       });
 

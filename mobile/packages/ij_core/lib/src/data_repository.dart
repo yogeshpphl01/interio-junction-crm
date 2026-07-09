@@ -29,6 +29,12 @@ class ClientRepository {
     final data = await api.get('/client/designs') as Map<String, dynamic>;
     return ((data['designs'] as List?) ?? const []).cast<Map<String, dynamic>>();
   }
+
+  Future<void> approveDesign(String revId) =>
+      api.post('/client/designs/$revId/approve');
+
+  Future<void> requestDesignChanges(String revId, String feedback) =>
+      api.post('/client/designs/$revId/request-changes', body: {'feedback': feedback});
 }
 
 /// Company App data reads (employee identity).
@@ -43,4 +49,13 @@ class CompanyRepository {
         .map(WorklistBucket.fromJson)
         .toList();
   }
+
+  // --- Worklist actions (contract §5.4 / §5.6 / §5.8) ---
+  Future<void> approveEstimate(String id) => api.post('/estimates/$id/approve');
+  Future<void> rejectEstimate(String id) => api.post('/estimates/$id/reject');
+  Future<void> approveExpense(String id) => api.post('/expenses/$id/approve');
+  Future<void> rejectExpense(String id) => api.post('/expenses/$id/reject');
+
+  Future<void> resolveTicket(String id, {String? note, bool remanufacture = false}) =>
+      api.post('/tickets/$id/resolve', body: {'note': note, 'remanufacture': remanufacture});
 }

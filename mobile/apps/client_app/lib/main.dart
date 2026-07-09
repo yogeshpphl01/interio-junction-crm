@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'src/services.dart';
 import 'src/auth/otp_login_screen.dart';
-import 'src/home/projects_screen.dart';
+import 'src/home/home_shell.dart';
 
 void main() => runApp(const ClientApp());
 
@@ -35,7 +35,7 @@ class _Root extends StatelessWidget {
         if (!snap.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-        return snap.data! ? const ProjectsScreen() : const OtpLoginScreen();
+        return snap.data! ? const HomeShell() : const OtpLoginScreen();
       },
     );
   }
