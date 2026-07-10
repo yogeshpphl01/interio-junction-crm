@@ -284,8 +284,8 @@ class _ScanSheetState extends State<_ScanSheet> {
       _error = null;
     });
     try {
-      // The camera scanner (mobile_scanner) plugs in here to fill `_code`; manual
-      // entry works today. Match is by part_uid or the raw QR value.
+      // Camera scanning fills `_code` — see SCANNER_SETUP.md to activate
+      // mobile_scanner; manual entry works today. Match is by part_uid or QR value.
       await Services.i.data.scanPart(
         partUid: _code.text.trim(),
         qrValue: _code.text.trim(),
