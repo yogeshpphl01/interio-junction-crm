@@ -83,6 +83,13 @@ class CompanyRepository {
         'note': note,
       })) as Map<String, dynamic>;
 
+  Future<void> submitExpense({
+    required String projectId,
+    required num amount,
+    String? note,
+  }) =>
+      api.post('/expenses', body: {'project_id': projectId, 'amount': amount, 'note': note});
+
   Future<void> raiseTicket({
     required String projectId,
     required String kind,
@@ -97,6 +104,20 @@ class CompanyRepository {
         'part_uid': partUid,
         'description': description,
       });
+
+  /// Ingest an Infurnia cut list (parts + QR). Idempotent per part_uid; returns
+  /// {cutlist_id, created, skipped, part_count}.
+  Future<Map<String, dynamic>> ingestCutlist({
+    required String projectId,
+    String? infurniaRef,
+    required List<Map<String, dynamic>> parts,
+  }) async =>
+      (await api.post('/cutlists', body: {
+        'project_id': projectId,
+        'source': 'infurnia',
+        'infurnia_ref': infurniaRef,
+        'parts': parts,
+      })) as Map<String, dynamic>;
 
   // --- Checklists + reconciliation (contract §5.7) ---
   Future<List<Map<String, dynamic>>> checklists(String projectId, {String? type}) async {

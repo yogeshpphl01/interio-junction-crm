@@ -4,6 +4,7 @@ import 'package:ij_core/ij_core.dart';
 import '../services.dart';
 import '../widgets.dart';
 import 'checklists_screen.dart';
+import 'cutlist_screen.dart';
 
 /// The journey stages a part moves through (mirrors backend PART_STAGES).
 const List<String> kPartStages = [
@@ -97,6 +98,18 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     }
   }
 
+  Future<void> _openExpense() async {
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _ExpenseSheet(projectId: _id),
+    );
+    if (ok == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Expense submitted for approval ✓')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -129,11 +142,26 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
               const SizedBox(height: 20),
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                 const Text('Parts', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                TextButton.icon(
-                  onPressed: () => _openScan(refresh: refresh),
-                  icon: const Icon(Icons.qr_code_scanner, size: 18),
-                  label: const Text('Scan'),
-                ),
+                Row(children: [
+                  TextButton.icon(
+                    onPressed: () async {
+                      await Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => CutlistIngestScreen(
+                          projectId: _id,
+                          projectCode: widget.project['project_code']?.toString(),
+                        ),
+                      ));
+                      refresh();
+                    },
+                    icon: const Icon(Icons.upload_file, size: 18),
+                    label: const Text('Import'),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => _openScan(refresh: refresh),
+                    icon: const Icon(Icons.qr_code_scanner, size: 18),
+                    label: const Text('Scan'),
+                  ),
+                ]),
               ]),
               if (parts.isEmpty)
                 const Padding(
@@ -174,6 +202,13 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                 onPressed: () => _openTicket(refresh: refresh),
                 icon: const Icon(Icons.report_problem_outlined),
                 label: const Text('Raise a ticket'),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _openExpense,
+                icon: const Icon(Icons.receipt_long_outlined),
+                label: const Text('Submit an expense'),
                 style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
               ),
               const SizedBox(height: 8),
@@ -397,6 +432,91 @@ class TicketSheetState extends State<TicketSheet> {
           child: _busy
               ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : const Text('Raise ticket'),
+        ),
+        TextButton(onPressed: _busy ? null : () => Navigator.pop(context, false), child: const Text('Cancel')),
+      ]),
+    );
+  }
+}
+
+/// Submit a site expense for approval (contract §5.8; gated by expenses.submit).
+class _ExpenseSheet extends StatefulWidget {
+  const _ExpenseSheet({required this.projectId});
+  final String projectId;
+
+  @override
+  State<_ExpenseSheet> createState() => _ExpenseSheetState();
+}
+
+class _ExpenseSheetState extends State<_ExpenseSheet> {
+  final _amount = TextEditingController();
+  final _note = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _submit() async {
+    final amount = num.tryParse(_amount.text.trim());
+    if (amount == null || amount <= 0) {
+      setState(() => _error = 'Enter an amount greater than 0.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await Services.i.data.submitExpense(
+        projectId: widget.projectId,
+        amount: amount,
+        note: _note.text.trim().isEmpty ? null : _note.text.trim(),
+      );
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      setState(() {
+        _error = e.statusCode == 403 ? 'You do not have permission to submit expenses.' : e.message;
+        _busy = false;
+      });
+    } catch (_) {
+      setState(() {
+        _error = 'Could not submit the expense.';
+        _busy = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Text('Submit an expense', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _amount,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Amount (₹)',
+            prefixText: '₹ ',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _note,
+          decoration: const InputDecoration(labelText: 'What was it for?', border: OutlineInputBorder()),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 10),
+          Text(_error!, style: const TextStyle(color: Colors.red)),
+        ],
+        const SizedBox(height: 16),
+        FilledButton(
+          onPressed: _busy ? null : _submit,
+          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+          child: _busy
+              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Text('Submit for approval'),
         ),
         TextButton(onPressed: _busy ? null : () => Navigator.pop(context, false), child: const Text('Cancel')),
       ]),
