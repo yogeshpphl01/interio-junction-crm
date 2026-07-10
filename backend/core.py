@@ -91,11 +91,20 @@ ROLE_MANAGER = "manager"
 #   accounts. A CEO account itself can never be deactivated or deleted.
 # </role>
 ROLE_CEO = "ceo"
+# <mobile-hierarchy roles>
+#   For the two-app mobile ecosystem (see docs/mobile-apps). Marketing Head ⊇
+#   Project Manager (== manager) PLUS ad-campaign Excel upload + silent oversight.
+#   Production Engineer ⊇ Designer PLUS factory/cut-list/QR/production. Additive:
+#   the existing web-CRM roles are unchanged in behaviour.
+# </mobile-hierarchy>
+ROLE_MARKETING_HEAD = "marketing_head"
+ROLE_PRODUCTION_ENGINEER = "production_engineer"
 # Roles with full company-wide lead visibility + admin-equivalent reach.
 ADMIN_ROLES = (ROLE_CEO, ROLE_ADMIN)
-FULL_VISIBILITY_ROLES = (ROLE_CEO, ROLE_ADMIN, ROLE_MANAGER)
+FULL_VISIBILITY_ROLES = (ROLE_CEO, ROLE_ADMIN, ROLE_MANAGER, ROLE_MARKETING_HEAD)
 # Built-in roles. Custom categories (Module 7) are added on top of these.
-BUILTIN_ROLES = [ROLE_CEO, ROLE_ADMIN, ROLE_MANAGER, ROLE_SALES, ROLE_DESIGNER, ROLE_SUPERVISOR]
+BUILTIN_ROLES = [ROLE_CEO, ROLE_ADMIN, ROLE_MARKETING_HEAD, ROLE_MANAGER, ROLE_SALES,
+                 ROLE_PRODUCTION_ENGINEER, ROLE_DESIGNER, ROLE_SUPERVISOR]
 
 DEFAULT_AUTOMATIONS = [
     {"key": "auto_assign_supervisor", "name": "Auto-assign Site Supervisor", "description": "When a lead enters Site Measurement, auto-assign an available supervisor.", "enabled": True},
@@ -300,6 +309,24 @@ def require_roles(*roles: str):
             raise HTTPException(status_code=403, detail="Forbidden")
         return user
     return dep
+
+
+# ---------- Client App (customer) auth dependency ----------
+async def get_current_customer(request: Request) -> dict:
+    """
+    Authenticate a Client-App customer. This is the customer side of the
+    dual-BFF boundary: it honours ONLY a 'customer_access' token, so an employee
+    token (type 'access') is rejected here just as get_current_user rejects a
+    customer token. The two identity worlds never cross.
+    """
+    token = extract_token(request)
+    payload = decode_token(token)
+    if payload.get("type") != "customer_access":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+    customer = await db.customers.find_one({"id": payload["sub"]}, {"_id": 0})
+    if not customer or not customer.get("is_active", True):
+        raise HTTPException(status_code=401, detail="Customer not found or inactive")
+    return customer
 
 
 # ---------- Visibility helpers ----------

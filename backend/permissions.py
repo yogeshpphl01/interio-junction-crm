@@ -40,28 +40,69 @@ PERMISSION_CATALOG = [
     ("roles.manage",        "Manage account categories",            "Administration"),
     ("audit.view",          "View the audit log",                   "Administration"),
     ("notifications.manage", "Manage notifications",                "Administration"),
+    # <mobile-hierarchy> permission keys for the two-app ecosystem (docs/mobile-apps).
+    #   Additive: they have no endpoints in the web CRM yet, so granting them is
+    #   harmless there and establishes the RBAC model the mobile apps will use. </mobile-hierarchy>
+    ("leads.upload_excel",  "Upload the ad-campaign Excel (Marketing Head)", "Leads"),
+    ("leads.distribute",    "Distribute leads to Project Managers",  "Leads"),
+    ("estimates.create",    "Create / submit estimates",             "Estimates"),
+    ("estimates.approve",   "Approve estimates",                     "Estimates"),
+    ("projects.coordinate", "Create project groups, add members, activate", "Projects"),
+    ("production.manage",   "Cut list, Part IDs, QR, scans, QC, packing, dispatch", "Production"),
+    ("installation.manage", "Site checklists, installation, completion", "Site"),
+    ("tickets.manage",      "Raise / resolve site & production tickets", "Site"),
+    ("expenses.submit",     "Submit site expense bills",             "Site"),
+    ("expenses.approve",    "Approve site expenses",                 "Projects"),
+    ("chat.access",         "Participate in chat",                   "Communication"),
+    ("oversight.silent",    "Silent (invisible) project oversight",  "Administration"),
 ]
 ALL_PERMISSIONS = [k for k, _, _ in PERMISSION_CATALOG]
 _ALL = set(ALL_PERMISSIONS)
 
-# <defaults> Built-in role -> permission set (reproduces today's access exactly). </defaults>
+# <defaults>
+#   Built-in role -> permission set. The web CRM's original access is preserved
+#   (every key it granted is still granted); the mobile-hierarchy keys are layered
+#   on so ONE backend powers both the web CRM and the two mobile apps. Superset
+#   relationships are expressed by set-union so the matrix stays the source of
+#   truth (Marketing Head ⊇ Project Manager, Production Engineer ⊇ Designer).
+# </defaults>
+_MANAGER_KEYS = {  # Project Manager
+    "leads.view_all", "leads.edit", "leads.import", "leads.assign", "analytics.company",
+    "estimates.approve", "projects.coordinate", "expenses.approve", "tickets.manage", "chat.access",
+}
+_SALES_KEYS = {  # Sales Executive
+    "leads.edit", "leads.import", "measurements.manage", "revisions.manage",
+    "payments.manage", "documents.upload", "estimates.create", "chat.access",
+}
+_DESIGNER_KEYS = {"revisions.manage", "documents.upload", "chat.access"}
+_SUPERVISOR_KEYS = {  # Site Manager
+    "measurements.manage", "documents.upload", "installation.manage",
+    "tickets.manage", "expenses.submit", "chat.access",
+}
 ROLE_DEFAULTS: dict[str, set] = {
     "ceo": set(_ALL),                              # everything
     "admin": _ALL - {"users.delete"},              # everything except hard-delete
-    "manager": {"leads.view_all", "leads.edit", "leads.import", "leads.assign", "analytics.company"},
-    "sales": {"leads.edit", "leads.import", "measurements.manage", "revisions.manage",
-              "payments.manage", "documents.upload"},
-    "designer": {"revisions.manage", "documents.upload"},
-    "supervisor": {"measurements.manage", "documents.upload"},
+    # Marketing Head ⊇ Project Manager + campaign upload/distribute + silent oversight.
+    "marketing_head": _MANAGER_KEYS | {"leads.upload_excel", "leads.distribute", "oversight.silent"},
+    "manager": set(_MANAGER_KEYS),
+    "sales": set(_SALES_KEYS),
+    # Production Engineer ⊇ Designer + factory / cut-list / QR / production.
+    "production_engineer": _DESIGNER_KEYS | {"production.manage", "tickets.manage"},
+    "designer": set(_DESIGNER_KEYS),
+    "supervisor": set(_SUPERVISOR_KEYS),
 }
-# Built-in label + colour (for seeding the roles table).
+# Built-in label + colour (for seeding the roles table). Labels align with the
+# mobile hierarchy (Project Manager / Site Manager) — code-authoritative for
+# built-ins, so a redeploy re-syncs them (seed_roles).
 ROLE_META = {
     "ceo": ("CEO", "#5C3A21"),
     "admin": ("Admin", "#C2683D"),
-    "manager": ("Manager", "#8A9A5B"),
+    "marketing_head": ("Marketing Head", "#7B4B94"),
+    "manager": ("Project Manager", "#8A9A5B"),
     "sales": ("Sales Executive", "#8A5A3B"),
+    "production_engineer": ("Production Engineer", "#3B6E8F"),
     "designer": ("Designer", "#9C6644"),
-    "supervisor": ("Site Supervisor", "#6B705C"),
+    "supervisor": ("Site Manager", "#6B705C"),
 }
 
 # In-memory caches: role key -> permission set, and role key -> (label, colour).
@@ -134,14 +175,32 @@ async def refresh_role_cache(db) -> None:
 
 
 async def seed_roles(db) -> None:
-    """Upsert the built-in roles into the roles table, then load the cache."""
+    """Insert missing built-in roles and keep existing SYSTEM roles in sync with
+    code (permissions + label + colour are code-authoritative for built-ins, which
+    is why the Module 7 UI shows them read-only). Custom categories are never
+    touched. This lets a redeploy pick up newly-added permission keys/roles (e.g.
+    the mobile-hierarchy additions). Then it loads the in-memory cache."""
     for key, perms in ROLE_DEFAULTS.items():
-        if not await db.roles.find_one({"key": key}):
-            label, color = ROLE_META.get(key, (key.title(), "#8A817C"))
+        label, color = ROLE_META.get(key, (key.title(), "#8A817C"))
+        desired = sorted(perms)
+        existing = await db.roles.find_one({"key": key})
+        if not existing:
             await db.roles.insert_one({
                 "key": key, "label": label, "color": color,
-                "base_role": None, "permissions": sorted(perms),
+                "base_role": None, "permissions": desired,
                 "is_system": True, "is_deleted": False,
                 "created_by": None, "created_at": _now(),
             })
+        elif existing.get("is_system"):
+            patch = {}
+            if set(existing.get("permissions") or []) != set(desired):
+                patch["permissions"] = desired
+            if existing.get("label") != label:
+                patch["label"] = label
+            if existing.get("color") != color:
+                patch["color"] = color
+            if existing.get("is_deleted"):
+                patch["is_deleted"] = False  # a built-in must never stay soft-deleted
+            if patch:
+                await db.roles.update_one({"key": key}, {"$set": patch})
     await refresh_role_cache(db)

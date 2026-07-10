@@ -14,6 +14,7 @@ import AppShell from "@/components/AppShell";
 import Login from "@/pages/Login";
 import CommandCenter from "@/pages/CommandCenter";
 import Pipeline from "@/pages/Pipeline";
+import Projects from "@/pages/Projects";
 import LeadDetail from "@/pages/LeadDetail";
 import Leads from "@/pages/Leads";
 import SiteVisits from "@/pages/SiteVisits";
@@ -38,6 +39,7 @@ export default function App() {
           >
             <Route index element={<CommandCenter />} />
             <Route path="/pipeline" element={<Pipeline />} />
+            <Route path="/projects" element={<Projects />} />
             <Route path="/leads" element={<Leads />} />
             <Route path="/leads/:id" element={<LeadDetail />} />
             <Route path="/site-visits" element={<SiteVisits />} />

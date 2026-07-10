@@ -151,7 +151,7 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_pe
     target = await db.users.find_one({"id": user_id})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    allowed = {"full_name", "role", "phone"}
+    allowed = {"full_name", "role", "phone", "reports_to"}
     update = {k: v for k, v in body.items() if k in allowed and v is not None}
     # Protect the CEO account from being demoted by anyone but a CEO.
     if target.get("role") == ROLE_CEO and "role" in update and update["role"] != ROLE_CEO and admin["role"] != ROLE_CEO:

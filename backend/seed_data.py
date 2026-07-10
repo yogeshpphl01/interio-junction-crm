@@ -53,6 +53,16 @@ SEED_USERS = [
         "phone": os.environ.get("CEO_PHONE", ""),
     },
     {
+        # <tester>A second super-account with the SAME capabilities as the CEO
+        #   (role "ceo"), for QA/testing. Initial password = ADMIN_PASSWORD; can
+        #   sign in directly (no forced password change).</tester>
+        "email": os.environ.get("TESTER_EMAIL", "tester@interiojunction.com"),
+        "full_name": "Tester",
+        "role": "ceo",
+        "phone": "",
+        "must_change": False,
+    },
+    {
         "email": os.environ.get("ADMIN_EMAIL", "admin@interiojunction.com"),
         "full_name": "Aanya Mehra",
         "role": "admin",
@@ -98,7 +108,8 @@ async def seed_users(db) -> dict[str, str]:
             "role": u["role"],
             "phone": u["phone"],
             "is_active": True,
-            "must_change_password": u["role"] == "ceo",  # CEO sets own password on first login
+            # CEO sets own password on first login; per-user override (e.g. Tester) wins.
+            "must_change_password": u.get("must_change", u["role"] == "ceo"),
             "created_at": _iso(datetime.now(timezone.utc)),
         }
         await db.users.insert_one(doc)
@@ -390,3 +401,22 @@ async def migrate_pipeline_stages(db) -> None:
         upsert=True,
     )
     logger.info(f"Pipeline v2 migration: remapped {moved} lead(s) to the 9-stage pipeline")
+
+
+# <maintenance name="purge_ceo_logs">
+#   One-time removal of the original CEO account's accumulated audit-log entries
+#   (requested clean-up of CEO log records). Targets only the CEO account by
+#   email, so the new Tester super-account's logs are untouched. Guarded by a
+#   settings flag so it runs exactly once. New CEO activity after this still logs.
+# </maintenance>
+async def purge_ceo_logs(db) -> None:
+    if await db.settings.find_one({"key": "ceo_logs_purged"}):
+        return
+    ceo_email = os.environ.get("CEO_EMAIL", "ceo@interiojunction.com")
+    removed = await db.audit_log.delete_many({"actor_email": ceo_email})
+    await db.settings.update_one(
+        {"key": "ceo_logs_purged"},
+        {"$set": {"value": {"purged_at": _iso(datetime.now(timezone.utc)), "removed": removed, "email": ceo_email}}},
+        upsert=True,
+    )
+    logger.info(f"Purged {removed} audit-log entry(ies) for the CEO account ({ceo_email})")

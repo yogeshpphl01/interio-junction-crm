@@ -1,0 +1,25 @@
+name: company_app
+description: Interio Junction — Company App (employees).
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ij_core:
+    path: ../../packages/ij_core
+  # Push notifications. Present as deps so the code compiles; FCM stays OFF until
+  # kFirebaseConfigured is flipped (see lib/src/push/push_config.dart + PUSH_SETUP.md).
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.0
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

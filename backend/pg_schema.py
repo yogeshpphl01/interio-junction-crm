@@ -74,6 +74,7 @@ SCHEMA: dict[str, dict] = {
             "role": "TEXT",
             "phone": "TEXT",
             "recovery_email": "TEXT",            # personal inbox for password-reset OTPs
+            "reports_to": "TEXT",                # manager in the hierarchy (mobile ecosystem)
             "is_active": "BOOLEAN",
             "must_change_password": "BOOLEAN",  # set after admin generates a password
             "created_by": "TEXT",
@@ -163,6 +164,10 @@ SCHEMA: dict[str, dict] = {
             "requirements": "TEXT",
             "assigned_to": "TEXT",
             "created_by": "TEXT",
+            # --- mobile ecosystem: campaign + hierarchy distribution (MH -> PM -> SE) ---
+            "campaign_id": "TEXT",   # links to marketing_campaigns.id
+            "pm_id": "TEXT",         # Project Manager the lead was distributed to
+            "customer_id": "TEXT",   # links to customers.id once the client authenticates (Client App)
             # --- pipeline position + outcome (original fields) ---
             "stage": "INTEGER",
             "status": "TEXT",
@@ -200,6 +205,9 @@ SCHEMA: dict[str, dict] = {
             {"cols": [("status", 1)], "unique": False},
             {"cols": [("lifecycle_phase", 1)], "unique": False},
             {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("campaign_id", 1)], "unique": False},
+            {"cols": [("pm_id", 1)], "unique": False},
+            {"cols": [("customer_id", 1)], "unique": False},
             # Unique (when present) so Excel re-uploads UPDATE instead of duplicating.
             {"cols": [("meta_lead_id", 1)], "unique": True},
         ],
@@ -215,6 +223,8 @@ SCHEMA: dict[str, dict] = {
             "rough_estimate": "DOUBLE PRECISION",
             "contract_value": "DOUBLE PRECISION",
             "signed_off": "BOOLEAN",
+            "booking_paid": "BOOLEAN",         # 10% booking received -> project activated
+            "activated_at": "TEXT",
             "sent_to_factory": "BOOLEAN",
             "factory_handover_at": "TEXT",
             "created_at": "TEXT",
@@ -274,8 +284,16 @@ SCHEMA: dict[str, dict] = {
         "columns": {
             "id": "TEXT",
             "project_id": "TEXT",
+            "lead_id": "TEXT",                 # booking payment is recorded before the project exists
+            "type": "TEXT",                    # "milestone" (web CRM) | "booking" (mobile)
             "milestone": "TEXT",
             "amount": "DOUBLE PRECISION",
+            "currency": "TEXT",
+            "method": "TEXT",                  # manual_upi | razorpay
+            "reference": "TEXT",               # UPI txn ref / gateway payment id
+            "screenshot_ref": "TEXT",          # manual-UPI payment screenshot
+            "verified_by": "TEXT",
+            "verified_at": "TEXT",
             "due_date": "TEXT",
             "paid_date": "TEXT",
             "status": "TEXT",
@@ -284,6 +302,7 @@ SCHEMA: dict[str, dict] = {
         "json": [],
         "indexes": [
             {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("lead_id", 1)], "unique": False},
         ],
     },
 
@@ -373,6 +392,270 @@ SCHEMA: dict[str, dict] = {
             {"cols": [("project_id", 1)], "unique": False},
             {"cols": [("lead_id", 1)], "unique": False},
         ],
+    },
+
+    # ========================================================================
+    # <mobile-ecosystem tables>
+    #   New tables for the two-app mobile ecosystem (docs/mobile-apps). Additive —
+    #   the web CRM never reads them. Existing tables are reused where they fit
+    #   (payments, documents, design_revisions, site_measurements, fixtures).
+    # </mobile-ecosystem>
+    # ========================================================================
+
+    # <table name="marketing_campaigns"><purpose>One row per ad-campaign Excel the Marketing Head imports.</purpose></table>
+    "marketing_campaigns": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "name": "TEXT", "source": "TEXT",   # e.g. facebook
+            "sheet_ref": "TEXT", "uploaded_by": "TEXT", "lead_count": "INTEGER",
+            "created_at": "TEXT",
+        },
+        "json": [], "indexes": [{"cols": [("created_at", -1)], "unique": False}],
+    },
+
+    # <table name="customers"><purpose>The customer's authenticated identity for the Client App. Phone + Email are the primary keys.</purpose></table>
+    "customers": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "lead_id": "TEXT", "full_name": "TEXT",
+            "phone": "TEXT", "email": "TEXT", "auth_uid": "TEXT",
+            "is_active": "BOOLEAN", "last_login_at": "TEXT", "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("phone", 1)], "unique": True},
+            {"cols": [("email", 1)], "unique": True},
+            {"cols": [("lead_id", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="customer_otps">
+    #   <purpose>
+    #     One-time login codes for the Client App. Mirrors password_resets but is
+    #     keyed on PHONE (not customer_id) because the customer's account may not
+    #     exist yet at the moment the first code is requested. Only the hash of the
+    #     code is stored; "latest row per phone wins". Delivery is pluggable
+    #     (SMS / WhatsApp / Firebase later) — logged for now.
+    #   </purpose>
+    # </table>
+    "customer_otps": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "phone": "TEXT",          # normalized phone the code was issued for
+            "otp_hash": "TEXT",       # bcrypt hash of the code (never the plain code)
+            "expires_at": "TEXT",
+            "attempts": "INTEGER",    # wrong tries so far (locks at OTP_MAX_ATTEMPTS)
+            "sent_at": "TEXT",        # last delivery time (drives the resend cooldown)
+            "consumed": "BOOLEAN",    # used / invalidated
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("phone", 1)], "unique": False},
+            {"cols": [("created_at", -1)], "unique": False},
+        ],
+    },
+
+    # <table name="device_tokens">
+    #   <purpose>
+    #     FCM push registration tokens for BOTH mobile apps. owner_type +
+    #     owner_id point at either a customer (Client App) or a user (Company
+    #     App); the token is unique so re-registering the same device updates in
+    #     place. Deactivated (not deleted) when FCM reports the token stale or the
+    #     app logs out, so send_push only ever fans out to live devices.
+    #   </purpose>
+    # </table>
+    "device_tokens": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "owner_type": "TEXT",     # "customer" | "user"
+            "owner_id": "TEXT",
+            "token": "TEXT",          # FCM registration token
+            "platform": "TEXT",       # android | ios | web
+            "app": "TEXT",            # "client" | "company"
+            "is_active": "BOOLEAN",
+            "last_seen_at": "TEXT",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("token", 1)], "unique": True},
+            {"cols": [("owner_id", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="estimates"><purpose>Versioned estimate header; workflow draft->submitted->approved->shared->accepted->revised.</purpose></table>
+    "estimates": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "lead_id": "TEXT", "project_id": "TEXT",
+            "version": "INTEGER", "status": "TEXT", "currency": "TEXT",
+            "subtotal": "DOUBLE PRECISION", "discount": "DOUBLE PRECISION",
+            "tax": "DOUBLE PRECISION", "total": "DOUBLE PRECISION",
+            "valid_until": "TEXT", "pdf_ref": "TEXT",
+            "created_by": "TEXT", "approved_by": "TEXT",
+            "created_at": "TEXT", "updated_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("lead_id", 1)], "unique": False},
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("status", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="estimate_items"><purpose>Line items of an estimate (the priced BOQ rows).</purpose></table>
+    "estimate_items": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "estimate_id": "TEXT", "category": "TEXT",
+            "description": "TEXT", "unit": "TEXT", "quantity": "DOUBLE PRECISION",
+            "rate": "DOUBLE PRECISION", "amount": "DOUBLE PRECISION",
+            "meta": "JSONB", "created_at": "TEXT",
+        },
+        "json": ["meta"],
+        "indexes": [{"cols": [("estimate_id", 1)], "unique": False}],
+    },
+
+    # <table name="cutlists"><purpose>A cut list imported from Infurnia (PDF/Excel) per project; parent of parts.</purpose></table>
+    "cutlists": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "project_id": "TEXT", "pdf_ref": "TEXT",
+            "source": "TEXT",            # e.g. "infurnia"
+            "infurnia_ref": "TEXT",      # Infurnia order/design reference
+            "created_by": "TEXT", "part_count": "INTEGER", "created_at": "TEXT",
+        },
+        "json": [], "indexes": [{"cols": [("project_id", 1)], "unique": False}],
+    },
+
+    # <table name="parts">
+    #   <purpose>One row per manufactured panel/part. Identity is INGESTED from
+    #   Infurnia (part_uid = Infurnia's panel/part id), not minted by us — see
+    #   docs/mobile-apps §14. The traceability spine for production tracking.</purpose>
+    # </table>
+    "parts": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "cutlist_id": "TEXT", "project_id": "TEXT",
+            "part_uid": "TEXT",          # Infurnia panel/part id (matches the printed QR)
+            "source": "TEXT",            # e.g. "infurnia"
+            "infurnia_ref": "TEXT",      # original Infurnia panel/order id
+            "name": "TEXT", "material": "TEXT", "dimensions": "TEXT",
+            "quantity": "INTEGER", "status": "TEXT", "current_station": "TEXT",
+            "created_at": "TEXT", "updated_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("part_uid", 1)], "unique": True},
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("cutlist_id", 1)], "unique": False},
+            {"cols": [("status", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="qr_codes">
+    #   <purpose>The DECODED value of Infurnia's printed QR per part (so our scans
+    #   match), plus a reference to the Infurnia label. We do NOT generate QR.</purpose>
+    # </table>
+    "qr_codes": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "part_id": "TEXT", "part_uid": "TEXT",
+            "qr_value": "TEXT",          # exact decoded value Infurnia's QR encodes
+            "label_ref": "TEXT",         # Infurnia panel-label PDF/image reference
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("part_id", 1)], "unique": True},
+            {"cols": [("part_uid", 1)], "unique": True},
+        ],
+    },
+
+    # <table name="part_scans"><purpose>Append-only scan history — every factory/site stage transition of a part.</purpose></table>
+    "part_scans": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "part_id": "TEXT", "part_uid": "TEXT", "project_id": "TEXT",
+            "station": "TEXT", "from_stage": "TEXT", "to_stage": "TEXT",
+            "scanned_by": "TEXT", "device_id": "TEXT", "result": "TEXT",
+            "note": "TEXT", "photo_ref": "TEXT", "gps": "TEXT", "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("part_id", 1)], "unique": False},
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("created_at", -1)], "unique": False},
+        ],
+    },
+
+    # <table name="tickets"><purpose>Site/production issues (damaged/missing/fitting) raised by Site Manager to Production Engineer.</purpose></table>
+    "tickets": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "project_id": "TEXT", "part_uid": "TEXT",
+            "kind": "TEXT", "priority": "TEXT", "status": "TEXT",
+            "title": "TEXT", "description": "TEXT",
+            "raised_by": "TEXT", "assigned_to": "TEXT",
+            "created_at": "TEXT", "resolved_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("status", 1)], "unique": False},
+            {"cols": [("assigned_to", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="ticket_media"><purpose>Photos/videos attached to a ticket.</purpose></table>
+    "ticket_media": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "ticket_id": "TEXT", "kind": "TEXT",
+            "storage_ref": "TEXT", "uploaded_by": "TEXT", "created_at": "TEXT",
+        },
+        "json": [], "indexes": [{"cols": [("ticket_id", 1)], "unique": False}],
+    },
+
+    # <table name="expenses"><purpose>Site expense bills (photo) with PM approval workflow.</purpose></table>
+    "expenses": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "project_id": "TEXT", "amount": "DOUBLE PRECISION",
+            "currency": "TEXT", "note": "TEXT", "bill_photo_ref": "TEXT",
+            "status": "TEXT", "submitted_by": "TEXT", "approved_by": "TEXT",
+            "created_at": "TEXT", "decided_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("status", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="checklists"><purpose>Factory/pack/load/unload/install/closure checklists with e-signature.</purpose></table>
+    "checklists": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "project_id": "TEXT", "type": "TEXT", "status": "TEXT",
+            "signed_by": "TEXT", "signature_ref": "TEXT",
+            "created_at": "TEXT", "completed_at": "TEXT",
+        },
+        "json": [], "indexes": [{"cols": [("project_id", 1)], "unique": False}],
+    },
+
+    # <table name="checklist_items"><purpose>Individual checklist line items with photo evidence.</purpose></table>
+    "checklist_items": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT", "checklist_id": "TEXT", "label": "TEXT",
+            "checked": "BOOLEAN", "photo_ref": "TEXT", "note": "TEXT",
+            "checked_by": "TEXT", "checked_at": "TEXT",
+        },
+        "json": [], "indexes": [{"cols": [("checklist_id", 1)], "unique": False}],
     },
 
     # <table name="settings"><purpose>Key/value app config (score weights, notifications).</purpose></table>

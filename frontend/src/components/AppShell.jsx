@@ -18,12 +18,13 @@ import EditProfileModal from "@/components/EditProfileModal";
 import RecoveryEmailModal from "@/components/RecoveryEmailModal";
 import {
   LayoutDashboard, Columns3, Users, Ruler, BarChart3, Settings, LogOut,
-  Sparkles, Workflow, Menu, X, ScrollText, Bell, KeyRound, Pencil,
+  Sparkles, Workflow, Menu, X, ScrollText, Bell, KeyRound, Pencil, FolderKanban,
 } from "lucide-react";
 
 const NAV = [
   { to: "/", label: "Command Center", icon: LayoutDashboard, always: true },
   { to: "/pipeline", label: "Pipeline", icon: Columns3, always: true },
+  { to: "/projects", label: "Projects", icon: FolderKanban, always: true },
   { to: "/leads", label: "Leads", icon: Users, roles: ["ceo", "admin", "manager", "sales"], perm: "leads.view_all" },
   { to: "/site-visits", label: "Site Visits", icon: Ruler, roles: ["ceo", "admin", "manager", "sales", "supervisor"], perm: "measurements.manage" },
   { to: "/scoring", label: "Lead Scoring", icon: Sparkles, roles: ["ceo", "admin", "manager", "sales"], perm: "scoring.manage" },
@@ -198,6 +199,7 @@ export default function AppShell() {
 function getTitle(path) {
   if (path === "/") return "Command Center";
   if (path.startsWith("/pipeline")) return "Pipeline";
+  if (path.startsWith("/projects")) return "Projects";
   if (path.startsWith("/leads/")) return "Lead Details";
   if (path.startsWith("/leads")) return "Leads";
   if (path.startsWith("/site-visits")) return "Site Visits";
