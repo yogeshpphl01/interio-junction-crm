@@ -3,6 +3,7 @@ import 'package:ij_core/ij_core.dart';
 
 import '../services.dart';
 import '../widgets.dart';
+import 'checklists_screen.dart';
 
 /// The journey stages a part moves through (mirrors backend PART_STAGES).
 const List<String> kPartStages = [
@@ -88,7 +89,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     final ok = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _TicketSheet(projectId: _id, prefillPartUid: partUid),
+      builder: (_) => TicketSheet(projectId: _id, prefillPartUid: partUid),
     );
     if (ok == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ticket raised ✓')));
@@ -157,6 +158,18 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                   ]),
                 ),
               const SizedBox(height: 24),
+              FilledButton.tonalIcon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => ChecklistsScreen(
+                    projectId: _id,
+                    projectCode: widget.project['project_code']?.toString(),
+                  ),
+                )),
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('Checklists & site reconciliation'),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+              ),
+              const SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: () => _openTicket(refresh: refresh),
                 icon: const Icon(Icons.report_problem_outlined),
@@ -308,16 +321,16 @@ class _ScanSheetState extends State<_ScanSheet> {
 }
 
 /// Raise a site/production ticket (contract §5.6).
-class _TicketSheet extends StatefulWidget {
-  const _TicketSheet({required this.projectId, this.prefillPartUid});
+class TicketSheet extends StatefulWidget {
+  const TicketSheet({required this.projectId, this.prefillPartUid});
   final String projectId;
   final String? prefillPartUid;
 
   @override
-  State<_TicketSheet> createState() => _TicketSheetState();
+  State<TicketSheet> createState() => TicketSheetState();
 }
 
-class _TicketSheetState extends State<_TicketSheet> {
+class TicketSheetState extends State<TicketSheet> {
   final _title = TextEditingController();
   String _kind = 'damaged';
   bool _busy = false;

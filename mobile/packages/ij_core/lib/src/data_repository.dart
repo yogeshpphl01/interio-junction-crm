@@ -98,6 +98,36 @@ class CompanyRepository {
         'description': description,
       });
 
+  // --- Checklists + reconciliation (contract §5.7) ---
+  Future<List<Map<String, dynamic>>> checklists(String projectId, {String? type}) async {
+    final d = await api.get('/checklists',
+        query: {'project_id': projectId, if (type != null) 'type': type});
+    return (d as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> checklist(String id) async =>
+      (await api.get('/checklists/$id')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> createChecklist(
+          String projectId, String type, List<String> items) async =>
+      (await api.post('/checklists',
+          body: {'project_id': projectId, 'type': type, 'items': items})) as Map<String, dynamic>;
+
+  /// The backend takes `label` as a query parameter, not a body.
+  Future<Map<String, dynamic>> addChecklistItem(String checklistId, String label) async =>
+      (await api.post('/checklists/$checklistId/items?label=${Uri.encodeQueryComponent(label)}'))
+          as Map<String, dynamic>;
+
+  Future<void> setChecklistItemChecked(String checklistId, String itemId, bool checked) =>
+      api.patch('/checklists/$checklistId/items/$itemId', body: {'checked': checked});
+
+  Future<Map<String, dynamic>> completeChecklist(String id, {String? signatureRef}) async =>
+      (await api.post('/checklists/$id/complete', body: {'signature_ref': signatureRef}))
+          as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> reconciliation(String projectId) async =>
+      (await api.get('/projects/$projectId/loading-reconciliation')) as Map<String, dynamic>;
+
   // --- Worklist actions (contract §5.4 / §5.6 / §5.8) ---
   Future<void> approveEstimate(String id) => api.post('/estimates/$id/approve');
   Future<void> rejectEstimate(String id) => api.post('/estimates/$id/reject');
