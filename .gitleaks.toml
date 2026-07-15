@@ -1,0 +1,18 @@
+title = "Interio Junction — gitleaks config"
+
+# Use gitleaks' built-in rule set (AWS/GCP keys, private keys, tokens, high-entropy, …).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented placeholders and dev/test-only values (never real secrets)"
+regexTarget = "match"
+regexes = [
+  '''REPLACE_ME''',                 # firebase_options.dart placeholder (public client IDs)
+  '''test-secret-booking''',        # ephemeral JWT secret used only in local verification
+  '''Test1234!''',                  # throwaway password created inside test scripts
+  ''':'(migrate_pw|app_pw|ro_pw)' ''',  # psql variable placeholders in db/roles.sql
+]
+paths = [
+  '''docs/security/MOBILE_SECURITY_STANDARDS\.md''',  # documents env-var names, not values
+]

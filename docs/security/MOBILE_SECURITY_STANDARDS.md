@@ -106,7 +106,7 @@ concrete recommendation for this system.
 |---|---|---|---|---|
 | E1 | Strong, standard algorithms only | MASVS‑CRYPTO‑1; CWE‑327 | ✅ bcrypt, HMAC‑SHA256 (JWT) | Keep; no home‑grown crypto. |
 | E2 | JWT signing: prefer asymmetric + key id | ASVS V3.5; SC‑12 | 🟡 **HS256 shared secret** | Move to **RS256/ES256** (private key signs, public verifies); add `kid` + `aud`; enables rotation & separation. |
-| E3 | Secure secret storage / no secrets in code | **SC‑12**; A.8.24; CWE‑798 | 🟡 `JWT_SECRET`, DB creds from env | Use a secrets manager/KMS (GCP Secret Manager); never commit; rotate on exposure. |
+| E3 | Secure secret storage / no secrets in code | **SC‑12**; A.8.24; CWE‑798 | ✅ startup **fails fast** on missing/weak `JWT_SECRET` in prod; no secrets committed; `docs/security/SECRETS.md` specifies GCP Secret Manager injection + rotation | Wire Secret Manager at deploy; adopt `kid`/asymmetric JWT (E2) for rotation. |
 | E4 | Key rotation policy | SP 800‑57; A.8.24 | ❌ | Define rotation for JWT keys, DB creds, gateway keys, FCM service account; support overlapping `kid`. |
 | E5 | CSPRNG for codes/tokens | CWE‑330/338 | ✅ `secrets.randbelow` for OTP, `uuid4` ids | Keep; ensure OTP entropy adequate (consider 6‑digit). |
 
@@ -178,7 +178,7 @@ concrete recommendation for this system.
 |---|---|---|---|---|
 | K1 | Central secrets manager | SC‑12; A.8.24 | 🟡 env vars | GCP Secret Manager/Vault; inject at runtime; audit access; auto‑rotate. |
 | K2 | Separate config per environment | CM‑6 | 🟡 `--dart‑define`, `.env` | Distinct secrets per dev/stage/prod; never share prod secrets with dev/CI. |
-| K3 | `.gitignore` for secrets & no secret commits | CWE‑798; CIS 4 | ✅ `.env`, native keys ignored | Add secret‑scanning (gitleaks/GitHub secret scanning) to CI. |
+| K3 | `.gitignore` for secrets & no secret commits | CWE‑798; CIS 4 | ✅ `.env`/native keys ignored; **gitleaks in CI** (`.github/workflows/secret-scan.yml` + `.gitleaks.toml`); verified no keys tracked | Enable GitHub secret scanning + push protection on the repo. |
 
 ## L. Supply Chain / Dependency Security
 *(OWASP Mobile M2; ASVS V14.2; NIST SR‑3/SA‑12, 800‑161; ISO A.5.19‑A.5.23/A.8.30; CIS 2/16; CWE‑1104/1357)*

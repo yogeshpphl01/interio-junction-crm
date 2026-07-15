@@ -26,6 +26,30 @@ def get_jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
 
 
+_WEAK_SECRETS = {"", "x", "secret", "changeme", "change-me", "dev", "devsecret",
+                 "password", "test", "test-secret", "test-secret-booking", "jwt", "supersecret"}
+
+
+def validate_security_config() -> None:
+    """
+    Fail fast on missing/weak security config in production (NIST SC-12 / CWE-798).
+    In non-prod we only warn, so local dev with a throwaway secret still runs.
+    """
+    import logging
+    log = logging.getLogger("security")
+    prod = os.environ.get("APP_ENV", "").lower() in ("prod", "production")
+    secret = os.environ.get("JWT_SECRET", "")
+    if prod:
+        if len(secret) < 32 or secret.lower() in _WEAK_SECRETS:
+            raise RuntimeError("JWT_SECRET must be a strong random value (>= 32 chars) in production")
+        if not (os.environ.get("DATABASE_URL") or os.environ.get("PG_HOST")):
+            raise RuntimeError("Database connection is not configured (DATABASE_URL / PG_HOST)")
+        if os.environ.get("OTP_DEBUG_LOG"):
+            log.warning("OTP_DEBUG_LOG is set but ignored in production (codes are never logged)")
+    elif len(secret) < 16 or secret.lower() in _WEAK_SECRETS:
+        log.warning("JWT_SECRET is weak/short — use a strong random value (fine for local dev only)")
+
+
 def otp_debug_logging() -> bool:
     """
     DEV-ONLY: whether plaintext OTP / reset codes may be written to the server log.
