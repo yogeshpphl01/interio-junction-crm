@@ -16,7 +16,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from core import (
     db, LoginInput, ChangePasswordInput, ProfileUpdate,
-    ForgotPasswordInput, ResetPasswordInput, get_current_user,
+    ForgotPasswordInput, ResetPasswordInput, get_current_user, revoke_tokens,
 )
 from permissions import permissions_for, role_label, role_color
 from auth_utils import (
@@ -87,11 +87,14 @@ async def login(input: LoginInput, response: Response, request: Request):
         pending = create_mfa_pending_token(user["id"])
         await log_audit(db, None, "auth.login", "user", user["id"], user["full_name"], {"mfa_required": True}, request)
         return {"mfa_required": True, "mfa_token": pending}
-    access = create_access_token(user["id"], user["email"], user["role"])
-    refresh = create_refresh_token(user["id"])
+    tv = int(user.get("token_version") or 0)
+    access = create_access_token(user["id"], user["email"], user["role"], tv=tv)
+    refresh = create_refresh_token(user["id"], tv=tv)
     set_auth_cookies(response, access, refresh)
     user.pop("_id", None)
     user.pop("password_hash", None)
+    user.pop("mfa_secret", None)
+    user.pop("mfa_backup_codes", None)
     user["permissions"] = permissions_for(user["role"])
     user["role_label"] = role_label(user["role"])
     user["role_color"] = role_color(user["role"])
@@ -102,6 +105,7 @@ async def login(input: LoginInput, response: Response, request: Request):
 @router.post("/auth/logout")
 async def logout(response: Response, request: Request, user: dict = Depends(get_current_user)):
     clear_auth_cookies(response)
+    await revoke_tokens(db.users, user["id"])  # invalidate the token server-side, not just the cookie
     await log_audit(db, user, "auth.logout", "user", user["id"], user["full_name"], None, request)
     return {"ok": True}
 
@@ -112,7 +116,7 @@ async def me(user: dict = Depends(get_current_user)):
 
 
 @router.post("/auth/change-password")
-async def change_password(body: ChangePasswordInput, user: dict = Depends(get_current_user)):
+async def change_password(body: ChangePasswordInput, response: Response, user: dict = Depends(get_current_user)):
     """Any logged-in user can change their own password (verifies the current one)."""
     if not body.new or len(body.new) < 8:
         raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
@@ -123,8 +127,13 @@ async def change_password(body: ChangePasswordInput, user: dict = Depends(get_cu
         {"id": user["id"]},
         {"$set": {"password_hash": hash_password(body.new), "must_change_password": False}},
     )
+    # Revoke every existing session (e.g. a stolen token), then re-issue for THIS one.
+    tv = await revoke_tokens(db.users, user["id"])
+    access = create_access_token(user["id"], user["email"], user["role"], aal=int(user.get("aal") or 1), tv=tv)
+    refresh = create_refresh_token(user["id"], tv=tv)
+    set_auth_cookies(response, access, refresh)
     await log_audit(db, user, "user.password_changed", "user", user["id"], user.get("full_name"), {})
-    return {"ok": True}
+    return {"ok": True, "access_token": access, "refresh_token": refresh}
 
 
 @router.post("/auth/forgot-password")
@@ -210,11 +219,13 @@ async def reset_password_with_otp(body: ResetPasswordInput, request: Request):
                         {"attempts": attempts, "locked": attempts >= OTP_MAX_ATTEMPTS}, request)
         raise invalid
 
-    # Success — set the new password and burn the code.
+    # Success — set the new password, burn the code, and revoke any existing
+    # sessions (a reset often follows account compromise).
     await db.users.update_one(
         {"id": user["id"]},
         {"$set": {"password_hash": hash_password(body.new_password), "must_change_password": False}},
     )
+    await revoke_tokens(db.users, user["id"])
     await db.password_resets.update_one({"id": rec["id"]}, {"$set": {"consumed": True}})
     await log_audit(db, user, "auth.password_reset_completed", "user", user["id"], user.get("full_name"), {}, request)
     return {"ok": True, "message": "Password updated. You can now sign in with your new password."}
@@ -247,9 +258,14 @@ async def refresh_token(request: Request, response: Response):
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     user = await db.users.find_one({"id": payload["sub"]})
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    access = create_access_token(user["id"], user["email"], user["role"])
-    new_refresh = create_refresh_token(user["id"])
+    if not user or not user.get("is_active", True):
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+    tv = int(user.get("token_version") or 0)
+    if int(payload.get("tv", 0)) != tv:  # revoked (logout / deactivation / credential change)
+        raise HTTPException(status_code=401, detail="Session revoked — please sign in again")
+    # Rotate: issue a fresh access + refresh. Refreshed sessions are AAL1;
+    # sensitive actions require a fresh step-up (Part 5).
+    access = create_access_token(user["id"], user["email"], user["role"], tv=tv)
+    new_refresh = create_refresh_token(user["id"], tv=tv)
     set_auth_cookies(response, access, new_refresh)
-    return {"ok": True}
+    return {"ok": True, "access_token": access, "refresh_token": new_refresh}

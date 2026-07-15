@@ -22,7 +22,7 @@ import secrets
 from fastapi import APIRouter, HTTPException, Depends
 from core import (
     db, get_current_user, require_permission, UserCreate,
-    ROLE_ADMIN, ROLE_CEO, BUILTIN_ROLES, now_iso,
+    ROLE_ADMIN, ROLE_CEO, BUILTIN_ROLES, now_iso, revoke_tokens,
 )
 from auth_utils import hash_password
 from audit import log_audit
@@ -99,6 +99,7 @@ async def reset_password(user_id: str, admin: dict = Depends(require_permission(
         {"id": user_id},
         {"$set": {"password_hash": hash_password(pwd), "must_change_password": True}},
     )
+    await revoke_tokens(db.users, user_id)  # invalidate the target's existing sessions
     await log_audit(db, admin, "user.password_reset", "user", user_id, target.get("full_name"), {})
     return {"id": user_id, "generated_password": pwd}
 
@@ -114,6 +115,7 @@ async def deactivate_user(user_id: str, admin: dict = Depends(require_permission
     if user_id == admin["id"]:
         raise HTTPException(status_code=400, detail="You cannot deactivate your own account")
     await db.users.update_one({"id": user_id}, {"$set": {"is_active": False}})
+    await revoke_tokens(db.users, user_id)  # kill any live session immediately
     await log_audit(db, admin, "user.deactivated", "user", user_id, target.get("full_name"), {})
     return {"ok": True}
 
@@ -163,6 +165,10 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_pe
     if not update:
         return await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
     await db.users.update_one({"id": user_id}, {"$set": update})
+    # A role change (esp. a demotion) or an admin-set password must drop the
+    # target's live sessions at once, not wait for token expiry (B8 / A7).
+    if ("role" in update and update["role"] != target.get("role")) or "password_hash" in update:
+        await revoke_tokens(db.users, user_id)
     new = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
     await log_audit(db, admin, "user.updated", "user", user_id, new.get("full_name") if new else user_id, {"fields": list(update.keys())})
     return new

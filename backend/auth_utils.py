@@ -78,7 +78,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 MFA_PENDING_TTL_MIN = 5  # short window to complete the second factor after password
 
 
-def create_access_token(user_id: str, email: str, role: str, aal: int = 1, amr=None) -> str:
+def create_access_token(user_id: str, email: str, role: str, aal: int = 1, amr=None, tv: int = 0) -> str:
     payload = {
         "sub": user_id,
         "email": email,
@@ -87,6 +87,7 @@ def create_access_token(user_id: str, email: str, role: str, aal: int = 1, amr=N
         "type": "access",
         "aal": aal,                       # NIST 800-63B authenticator assurance level (1 or 2)
         "amr": amr or ["pwd"],            # auth methods used (e.g. ["pwd","otp"])
+        "tv": tv,                         # token version — bump on the user to revoke
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
@@ -115,11 +116,12 @@ def create_step_up_token(user_id: str) -> str:
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(user_id: str, tv: int = 0) -> str:
     payload = {
         "sub": user_id,
         "exp": datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_TTL_DAYS),
         "type": "refresh",
+        "tv": tv,
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
@@ -135,21 +137,23 @@ CUSTOMER_ACCESS_TTL_MIN = 60 * 24        # 24h
 CUSTOMER_REFRESH_TTL_DAYS = 60
 
 
-def create_customer_access_token(customer_id: str, phone: str) -> str:
+def create_customer_access_token(customer_id: str, phone: str, tv: int = 0) -> str:
     payload = {
         "sub": customer_id,
         "phone": phone,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=CUSTOMER_ACCESS_TTL_MIN),
         "type": "customer_access",
+        "tv": tv,
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
-def create_customer_refresh_token(customer_id: str) -> str:
+def create_customer_refresh_token(customer_id: str, tv: int = 0) -> str:
     payload = {
         "sub": customer_id,
         "exp": datetime.now(timezone.utc) + timedelta(days=CUSTOMER_REFRESH_TTL_DAYS),
         "type": "customer_refresh",
+        "tv": tv,
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 

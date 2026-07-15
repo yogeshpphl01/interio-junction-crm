@@ -49,8 +49,8 @@ concrete recommendation for this system.
 | A3 | Server‑side brute‑force / lockout on login | 800‑63B §5.2.2; ASVS V2.2; CWE‑307 | ✅ per‑account progressive lockout on `/auth/login` (5 fails → doubling lock, capped 60m; reset on success; 429 while locked) | Add per‑IP throttling at the gateway (I1/I2). |
 | A4 | Rate‑limit OTP request (anti‑enumeration + SMS‑bombing) | 800‑63B; API4 | ✅ 60s per‑phone cooldown + **10/day per‑phone cap**; generic response (no enumeration) | Add per‑IP + global caps + App Check at the gateway. |
 | A5 | Short‑lived access token + refresh | ASVS V3.3; 800‑63B §7 | ✅ access 8h (staff)/24h (customer), refresh 7d/60d, typed | Shorten staff access to ≤1h; see A6/A7. |
-| A6 | Refresh‑token rotation + reuse detection | ASVS V3.3; 800‑63B §7.2 | ❌ refresh tokens are static, reusable | Rotate on every refresh; detect reuse → revoke the family. |
-| A7 | Token revocation / real logout | ASVS V3.3; A.8.5; CWE‑613 | ❌ logout only clears the client; tokens stay valid to expiry | Add a server‑side revocation list (jti/`kid`) or short TTL + rotation; revoke on logout/role‑change/deactivation. |
+| A6 | Refresh‑token rotation + reuse detection | ASVS V3.3; 800‑63B §7.2 | 🟡 refresh now **rotates** — every `/auth/refresh` (staff) and `/client/auth/refresh` (customer) issues a fresh access **and** refresh token; a global `token_version` revokes the whole family on logout/credential‑change/deactivation | Per‑token single‑use reuse detection (jti store or client single‑flight) deferred — at current scale family‑revocation covers the theft case; add jti tracking before multi‑device. |
+| A7 | Token revocation / real logout | ASVS V3.3; A.8.5; CWE‑613 | ✅ **`token_version` revocation** — every access/refresh token carries `tv`; `get_current_user`/`get_current_customer` reject a stale `tv` (401). Logout, admin reset‑password, deactivate, role change and self change/reset‑password all bump it → **live Bearer tokens die instantly** (verified: 25/25 checks) | — |
 | A8 | MFA for employees | **800‑63B AAL2**; API2; A.8.5; CIS 6.3/6.4 | ✅ **TOTP MFA** (RFC 6238, dep‑free): enroll/activate, two‑step login, one‑time backup codes, replay‑protected, `aal`/`amr` claims, step‑up token; `require_aal2`/`require_step_up` deps ready | Enforce enrollment for all staff; add **passkey/FIDO2 for admin/CEO** (phishing‑resistant); wire step‑up onto privileged endpoints (P1‑9). |
 | A9 | Second factor / step‑up for customers on high‑risk actions | 800‑63B; M3 | 🟡 phone‑OTP is a single possession factor | Add device biometric/PIN as a second factor for accept‑estimate & payments (step‑up). See Part 3. |
 | A10 | Idle + absolute session timeout | ASVS V3.3; 800‑53 AC‑11/AC‑12 | 🟡 token TTL only | Enforce inactivity re‑auth in‑app; require re‑login on token expiry (no silent infinite refresh for staff). |
@@ -71,7 +71,7 @@ concrete recommendation for this system.
 | B5 | Mass‑assignment / property‑level authZ | **API3 BOPLA**; CWE‑915 | 🟡 Pydantic models constrain input; some PATCH allow‑lists | Explicit allow‑lists on all write models; never bind whole request to ORM/doc. |
 | B6 | Server‑authoritative business values | API6; CWE‑840 | ✅ estimate totals & booking amount computed server‑side | Keep; never trust client‑sent money/stage/role. |
 | B7 | Protect sensitive business flows (abuse) | **API6** | 🟡 idempotency on booking/scans | Add anti‑automation on bulk endpoints (campaign import, distribute, scan). |
-| B8 | Deactivation/role change takes effect immediately | AC‑2; A.5.18 | 🟡 `is_active` checked at auth; tokens live until expiry | Tie to A7 revocation so deactivated staff lose access at once. |
+| B8 | Deactivation/role change takes effect immediately | AC‑2; A.5.18 | ✅ role/permissions are read **fresh from the DB every request** (never trusted from the token), and deactivation/role‑change bump `token_version` → the live token is rejected on its next call (verified) | — |
 
 ## C. Data Storage (mobile) & Data‑at‑Rest (backend)
 *(OWASP MASVS‑STORAGE, Mobile M9; ASVS V6; NIST 800‑53 SC‑28/MP; ISO A.8.10/A.8.11/A.8.12; 27018; CIS 3; CWE‑312/311/922)*
@@ -247,7 +247,7 @@ concrete recommendation for this system.
 |---|---|---|
 | MASVS‑STORAGE | 🟡 | screenshot/backup/clipboard (C2‑C4) |
 | MASVS‑CRYPTO | ✅/🟡 | JWT → asymmetric + rotation (E2/E4) |
-| MASVS‑AUTH | 🟡 | **MFA (staff)**, refresh rotation/revocation, login lockout (A6‑A8) |
+| MASVS‑AUTH | ✅/🟡 | ✅ MFA (staff), token revocation, refresh rotation, login lockout (A3/A7/A8); remaining: passkeys for admins, per‑token reuse detection (A6) |
 | MASVS‑NETWORK | 🟡 | **TLS pinning**, enforce HTTPS (D1‑D2) |
 | MASVS‑PLATFORM | ❌ | exported components, deep links, tapjacking (G1/G6/F5) |
 | MASVS‑CODE | 🟡 | dep scanning, input bounds (F2/L2) |
@@ -291,7 +291,7 @@ concrete recommendation for this system.
 
 **P1 — before general availability:**
 6. **MFA for all staff (TOTP)**; phishing‑resistant for admins (Part 5).
-7. **Refresh‑token rotation + revocation**, immediate deactivation (A6‑A8/B8).
+7. ✅ **Refresh‑token rotation + revocation**, immediate deactivation (A6‑A8/B8) — `token_version` kills live tokens on logout / credential change / deactivation / role change; refresh rotates both tokens (verified 25/25).
 8. **TLS pinning + Firebase App Check + Play Integrity/App Attest** (D2/G4).
 9. **Segregation of privileges** redesign + admin account restrictions (Part 4).
 10. **Signed URLs** for documents; private storage; upload validation (C7/F4).
@@ -372,7 +372,7 @@ Concrete role adjustments:
 | **Four‑eyes on the most sensitive ops** | `users.delete`, role edits, payment refunds, bulk export require a second approver | AC‑5; A.5.3 |
 | **Step‑up MFA for admin actions** | Re‑authenticate with a second factor before privileged actions (ties to Part 5) | IA‑2(1); AC‑6 |
 | **Privileged‑action auditing + alerting** | Every privileged/role/permission change is logged to the immutable audit and alerts security | AU‑2/AU‑12; A.8.15 |
-| **Immediate deprovision (leaver)** | Deactivation revokes tokens at once (fix A7/B8), keys rotated | AC‑2(3); A.5.18 |
+| **Immediate deprovision (leaver)** | ✅ deactivation revokes all tokens at once via `token_version` (A7/B8); keys rotated | AC‑2(3); A.5.18 |
 | **Service accounts are non‑human & least‑priv** | backend→DB, backend→FCM, webhook verifiers: no interactive login, scoped, rotated | AC‑6; A.8.2 |
 
 ## 4.5 Database privilege separation

@@ -85,6 +85,7 @@ SCHEMA: dict[str, dict] = {
             "mfa_secret": "TEXT",               # base32 TOTP secret — ENCRYPT AT REST (CMEK / field-level, C5/C6)
             "mfa_backup_codes": "JSONB",        # [{hash, used}] one-time recovery codes (bcrypt-hashed)
             "mfa_last_step": "INTEGER",         # last consumed TOTP step (replay protection)
+            "token_version": "INTEGER",         # bump to instantly revoke all of a user's tokens
             "created_at": "TEXT",
         },
         "json": ["mfa_backup_codes"],
@@ -427,6 +428,7 @@ SCHEMA: dict[str, dict] = {
             "id": "TEXT", "lead_id": "TEXT", "full_name": "TEXT",
             "phone": "TEXT", "email": "TEXT", "auth_uid": "TEXT",
             "is_active": "BOOLEAN", "last_login_at": "TEXT", "created_at": "TEXT",
+            "token_version": "INTEGER",   # bump to instantly revoke the customer's tokens
         },
         "json": [],
         "indexes": [

@@ -38,7 +38,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
-from core import db, get_current_customer, now_iso, STAGES, run_workflow_notify_designer
+from core import db, get_current_customer, now_iso, STAGES, run_workflow_notify_designer, revoke_tokens
 from auth_utils import (
     hash_password, verify_password, decode_token, otp_debug_logging,
     create_customer_access_token, create_customer_refresh_token,
@@ -267,8 +267,9 @@ async def verify_otp(body: VerifyOtpIn, request: Request):
         await db.leads.update_one({"id": lid}, {"$set": {"customer_id": customer["id"]}})
     await db.customers.update_one({"id": customer["id"]}, {"$set": {"last_login_at": now_iso()}})
 
-    access = create_customer_access_token(customer["id"], customer["phone"])
-    refresh = create_customer_refresh_token(customer["id"])
+    tv = int(customer.get("token_version") or 0)
+    access = create_customer_access_token(customer["id"], customer["phone"], tv=tv)
+    refresh = create_customer_refresh_token(customer["id"], tv=tv)
     await log_audit(db, None, "client.login", "customer", customer["id"], customer.get("full_name"),
                     {"phone": norm}, request)
     customer.pop("_id", None)
@@ -287,13 +288,17 @@ async def refresh_client_token(body: RefreshIn, request: Request):
     customer = await db.customers.find_one({"id": payload["sub"]}, {"_id": 0})
     if not customer or not customer.get("is_active", True):
         raise HTTPException(status_code=401, detail="Customer not found or inactive")
-    access = create_customer_access_token(customer["id"], customer["phone"])
+    tv = int(customer.get("token_version") or 0)
+    if int(payload.get("tv", 0)) != tv:
+        raise HTTPException(status_code=401, detail="Session revoked — please sign in again")
+    access = create_customer_access_token(customer["id"], customer["phone"], tv=tv)
     return {"access_token": access, "token_type": "bearer"}
 
 
 @router.post("/client/auth/logout")
 async def client_logout(request: Request, customer: dict = Depends(get_current_customer)):
-    """Bearer tokens are stateless; this just records the event for the audit trail."""
+    """Revoke this customer's tokens server-side, then record the event."""
+    await revoke_tokens(db.customers, customer["id"])
     await log_audit(db, None, "client.logout", "customer", customer["id"], customer.get("full_name"), None, request)
     return {"ok": True}
 

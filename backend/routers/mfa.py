@@ -61,8 +61,9 @@ async def _check_second_factor(user: dict, code: str) -> tuple[bool, str]:
 
 
 def _issue_full_session(user: dict):
-    access = create_access_token(user["id"], user["email"], user["role"], aal=2, amr=["pwd", "otp"])
-    refresh = create_refresh_token(user["id"])
+    tv = int(user.get("token_version") or 0)
+    access = create_access_token(user["id"], user["email"], user["role"], aal=2, amr=["pwd", "otp"], tv=tv)
+    refresh = create_refresh_token(user["id"], tv=tv)
     u = {k: v for k, v in user.items()
          if k not in ("_id", "password_hash", "mfa_secret", "mfa_backup_codes")}
     u["permissions"] = permissions_for(user["role"])

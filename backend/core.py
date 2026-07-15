@@ -299,12 +299,23 @@ async def get_current_user(request: Request) -> dict:
         {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_backup_codes": 0})
     if not user or not user.get("is_active", True):
         raise HTTPException(status_code=401, detail="User not found or inactive")
+    if int(payload.get("tv", 0)) != int(user.get("token_version") or 0):
+        raise HTTPException(status_code=401, detail="Session revoked — please sign in again")
     user["permissions"] = permissions_for(user["role"])  # for permission-aware UI
     user["role_label"] = role_label(user["role"])         # for badges (incl. custom roles)
     user["role_color"] = role_color(user["role"])
     user["aal"] = int(payload.get("aal", 1))              # NIST 800-63B assurance level from the token
     user["amr"] = payload.get("amr", [])
     return user
+
+
+async def revoke_tokens(coll, doc_id: str) -> int:
+    """Instantly invalidate every token for a user/customer by bumping its
+    token_version (A7/B8 — logout, deactivation, role change, credential change)."""
+    doc = await coll.find_one({"id": doc_id}, {"_id": 0, "token_version": 1})
+    tv = int((doc or {}).get("token_version") or 0) + 1
+    await coll.update_one({"id": doc_id}, {"$set": {"token_version": tv}})
+    return tv
 
 
 def require_aal2(user: dict = Depends(get_current_user)) -> dict:
@@ -351,6 +362,8 @@ async def get_current_customer(request: Request) -> dict:
     customer = await db.customers.find_one({"id": payload["sub"]}, {"_id": 0})
     if not customer or not customer.get("is_active", True):
         raise HTTPException(status_code=401, detail="Customer not found or inactive")
+    if int(payload.get("tv", 0)) != int(customer.get("token_version") or 0):
+        raise HTTPException(status_code=401, detail="Session revoked — please sign in again")
     return customer
 
 
