@@ -19,10 +19,10 @@
 """
 import uuid
 import secrets
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from core import (
     db, get_current_user, require_permission, UserCreate,
-    ROLE_ADMIN, ROLE_CEO, BUILTIN_ROLES, now_iso, revoke_tokens,
+    ROLE_ADMIN, ROLE_CEO, BUILTIN_ROLES, now_iso, revoke_tokens, assert_step_up,
 )
 from auth_utils import hash_password
 from audit import log_audit
@@ -131,9 +131,10 @@ async def activate_user(user_id: str, admin: dict = Depends(require_permission("
 
 
 @router.delete("/users/{user_id}")
-async def delete_user(user_id: str, ceo: dict = Depends(require_permission("users.delete"))):
+async def delete_user(user_id: str, request: Request, ceo: dict = Depends(require_permission("users.delete"))):
     """Permanently delete an account (CEO only). The CEO account itself can never
     be deleted. The user's past actions remain in the immutable audit log."""
+    await assert_step_up(request, ceo)   # hard-delete is the most destructive admin act
     target = await db.users.find_one({"id": user_id})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
@@ -148,7 +149,7 @@ async def delete_user(user_id: str, ceo: dict = Depends(require_permission("user
 
 
 @router.patch("/users/{user_id}")
-async def update_user(user_id: str, body: dict, admin: dict = Depends(require_permission("users.manage"))):
+async def update_user(user_id: str, body: dict, request: Request, admin: dict = Depends(require_permission("users.manage"))):
     """Admin edit of another account's name / role / phone (and password)."""
     target = await db.users.find_one({"id": user_id})
     if not target:
@@ -160,6 +161,9 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_pe
         raise HTTPException(status_code=403, detail="Only a CEO can change a CEO's role")
     if "role" in update and update["role"] not in await _valid_roles():
         raise HTTPException(status_code=400, detail=f"Unknown role: {update['role']}")
+    # A privilege change (grant/revoke via role) is a sensitive act -> step-up.
+    if "role" in update and update["role"] != target.get("role"):
+        await assert_step_up(request, admin)
     if "password" in body and body["password"]:
         update["password_hash"] = hash_password(body["password"])
     if not update:

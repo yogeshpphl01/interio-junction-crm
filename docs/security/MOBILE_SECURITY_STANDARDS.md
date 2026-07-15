@@ -67,7 +67,7 @@ concrete recommendation for this system.
 | B1 | Server‑side authorization on every endpoint | API5 BFLA; ASVS V4.1; AC‑3 | ✅ `require_permission` gates writes; reads scoped | Add automated tests that every route asserts a gate (deny‑by‑default). |
 | B2 | Object‑level authZ (no IDOR/BOLA) | **API1 BOLA**; CWE‑639 | ✅ customer data scoped by `customer_id`; 404 (not 403) hides others' objects | Extend the same ownership check to every new object type; add BOLA tests to CI. |
 | B3 | Dual‑BFF identity separation | API2/API5; AC‑6 | ✅ `customer_access` vs `access` token types mutually rejected | Keep tokens in separate namespaces; never share a signing key purpose across audiences (add `aud` claim). |
-| B4 | Least privilege in roles | **AC‑6**; A.8.2; CIS 6.8 | 🟡 8 roles/28 perms; `admin`≈ALL, `ceo`=ALL | Split super‑roles; see Part 2 (Segregation of Privileges). |
+| B4 | Least privilege in roles | **AC‑6**; A.8.2; CIS 6.8 | 🟡 money split into `payments.record`/`payments.confirm`; `accounts` role added; `admin` stripped of money‑confirm; four‑eyes on approvals (P1‑9). `ceo`=ALL remains | Finish: dedicated `system_admin` role + CEO break‑glass (Part 4). |
 | B5 | Mass‑assignment / property‑level authZ | **API3 BOPLA**; CWE‑915 | 🟡 Pydantic models constrain input; some PATCH allow‑lists | Explicit allow‑lists on all write models; never bind whole request to ORM/doc. |
 | B6 | Server‑authoritative business values | API6; CWE‑840 | ✅ estimate totals & booking amount computed server‑side | Keep; never trust client‑sent money/stage/role. |
 | B7 | Protect sensitive business flows (abuse) | **API6** | 🟡 idempotency on booking/scans | Add anti‑automation on bulk endpoints (campaign import, distribute, scan). |
@@ -293,7 +293,7 @@ concrete recommendation for this system.
 6. **MFA for all staff (TOTP)**; phishing‑resistant for admins (Part 5).
 7. ✅ **Refresh‑token rotation + revocation**, immediate deactivation (A6‑A8/B8) — `token_version` kills live tokens on logout / credential change / deactivation / role change; refresh rotates both tokens (verified 25/25).
 8. **TLS pinning + Firebase App Check + Play Integrity/App Attest** (D2/G4).
-9. **Segregation of privileges** redesign + admin account restrictions (Part 4).
+9. 🟡 **Segregation of privileges** (Part 4) — payment record/confirm split, `accounts` finance role, admin stripped of money‑confirm, four‑eyes on approvals/booking, step‑up wiring (all verified). Remaining: dedicated `system_admin` role + CEO break‑glass.
 10. **Signed URLs** for documents; private storage; upload validation (C7/F4).
 11. **DPDP compliance**: consent, privacy policy, DSR, breach runbook, processor DPAs (M1‑M7).
 12. **Screenshot/backup/clipboard** hardening; obfuscation; root/tamper checks (C2‑C4/G/H).
@@ -330,16 +330,16 @@ segregation, which is a strong base:
 | Upload/distribute campaign leads (MH) vs work them (Sales) | ✅ |
 | Hard‑delete users (`users.delete`) | ✅ CEO‑only |
 
-## 4.2 Toxic combinations & over‑privilege to FIX
+## 4.2 Toxic combinations & over‑privilege — status
 
-| # | Finding | Why it's a risk | Recommendation |
+| # | Finding | Why it's a risk | Status / resolution |
 |---|---|---|---|
-| SoD‑1 | **`payments.manage` is held by Sales** (they record/verify the booking payment) | The person who closes the sale also confirms the money → fraud / unverified activation | Move payment **verification** to a `finance`/PM role. Sales may *record* a provisional manual‑UPI payment; a different role **verifies** it (and activation triggers only on verify). Dual‑control above a ₹ threshold. |
-| SoD‑2 | **`admin` = all‑but‑delete** and **`ceo` = everything** — single logins that can manage users **and** approve estimates **and** verify payments | One compromised/rogue admin can create a user, grant itself rights, approve its own estimate and confirm payment — no second pair of eyes | Split **system administration** (users, roles, settings, audit) from **business super‑powers** (approve/verify). No one login should hold both. |
-| SoD‑3 | **Self‑approval possible** for `admin`/`ceo` (they hold both `estimates.create`‑equivalent reach and `estimates.approve`) | Maker = checker | Enforce in code: an approver **cannot approve an object they created/own** (`approver_id ≠ created_by`) for estimates, expenses, payments. |
-| SoD‑4 | **Shared‑looking accounts** (`ceo@…`, `admin@…` seeded) | Shared creds break accountability & audit | Named individual accounts only; disable/rename generic shared logins; every actor is a real person. |
-| SoD‑5 | **`oversight.silent`** (Marketing Head silent monitoring) | Covert access to others' work — privacy & abuse concern | Keep least‑privilege; **log every use** to the immutable audit; review periodically; disclose in policy. |
-| SoD‑6 | App connects to Postgres as **superuser** (dev) | DB compromise = total | Least‑privilege DB roles (4.4). |
+| SoD‑1 | **`payments.manage` is held by Sales** (they record/verify the booking payment) | The person who closes the sale also confirms the money → fraud / unverified activation | ✅ **FIXED (P1‑9).** Money is split into `payments.record` (Sales — enter only) and `payments.confirm` (Finance/PM/CEO — verify/mark‑Paid). Booking **activation now fires only on confirm**, which requires `payments.confirm`; Sales can no longer confirm. Legacy `payments.manage` kept only as a back‑compat umbrella (no built‑in holds it). *(Verified.)* |
+| SoD‑2 | **`admin` = all‑but‑delete** and **`ceo` = everything** — single logins that can manage users **and** approve estimates **and** verify payments | One compromised/rogue admin can create a user, grant itself rights, approve its own estimate and confirm payment — no second pair of eyes | 🟡 **PARTIAL (P1‑9).** `admin` lost `payments.confirm` + the money umbrella — it can *record* but a second party must confirm (split system‑admin from money). Four‑eyes (SoD‑3) blocks self‑approval for admin/ceo. Remaining: a dedicated `system_admin` role fully stripped of business approvals, and CEO as break‑glass (4.4). |
+| SoD‑3 | **Self‑approval possible** for `admin`/`ceo` (they hold both `estimates.create`‑equivalent reach and `estimates.approve`) | Maker = checker | ✅ **FIXED (P1‑9).** `deny_self_action(creator ≠ actor)` enforced in code for **estimate approve, expense approve, payment confirm, and booking verification** — applies to everyone incl. admin/CEO. *(Verified.)* |
+| SoD‑4 | **Shared‑looking accounts** (`ceo@…`, `admin@…` seeded) | Shared creds break accountability & audit | 🟡 Named individual accounts only; disable/rename generic shared logins; every actor is a real person. |
+| SoD‑5 | **`oversight.silent`** (Marketing Head silent monitoring) | Covert access to others' work — privacy & abuse concern | 🟡 Keep least‑privilege; **log every use** to the immutable audit; review periodically; disclose in policy. |
+| SoD‑6 | App connects to Postgres as **superuser** (dev) | DB compromise = total | ✅ **FIXED (P0‑4).** Least‑privilege DB roles (`ij_app`/`ij_migrate`/`ij_readonly`), see 4.4 / `db/roles.sql`. |
 
 ## 4.3 Recommended target — separation of duties matrix
 
@@ -356,10 +356,11 @@ same set) and enforce them when composing roles:
 | Audit | perform actions | administer/erase the audit log |
 
 Concrete role adjustments:
-- **Add a `finance` role** (verify payments, approve expenses, financial analytics) — distinct from Sales and from system admin.
-- **Split `admin`** → `system_admin` (users, roles, settings, audit — **no** approvals/payments) and keep business approvals in `manager`/`marketing_head`/`finance`.
-- **`ceo`** stays all‑powerful **but becomes break‑glass** (4.4), not a daily driver; give the CEO a normal working role for day‑to‑day.
-- Enforce `approver ≠ creator` in the estimate/expense/payment transitions.
+- ✅ **Added an `accounts` (Finance) role** (`payments.record` + `payments.confirm` + `expenses.approve` + financial analytics) — distinct from Sales and from system admin *(P1‑9)*.
+- 🟡 **Split `admin`**: `admin` lost `payments.confirm` and the money umbrella (records only; a second party confirms) *(P1‑9)*. Remaining: a fully stripped `system_admin` role with **no** business approvals.
+- 🟡 **`ceo`** stays all‑powerful; making it true **break‑glass** (4.4) with a separate daily‑driver login is still open. Four‑eyes already stops the CEO self‑approving *(P1‑9)*.
+- ✅ **Enforce `approver ≠ creator`** in the estimate/expense/payment/booking transitions *(P1‑9, verified)*.
+- ✅ **Step‑up wired** onto payment‑confirm, estimate/expense approve, booking verify, user role‑change and hard‑delete — gated by `STEP_UP_ENABLED` so it switches on once staff MFA enrolment (P1‑6) is universal *(P1‑9, verified)*.
 
 ## 4.4 Restriction of privileged accounts (PAM)
 
@@ -369,8 +370,8 @@ Concrete role adjustments:
 | **Separate admin identity from daily use** | Admins do normal work with a normal role; switch to a distinct privileged account only for admin tasks | **AC‑6(5)**; CIS 5.4 |
 | **Break‑glass CEO/super‑admin** | Sealed credential, hardware‑MFA, used only in emergencies, **auto‑alert on every login/action**, short forced session, reviewed after use | AC‑6(2); A.8.2 |
 | **Just‑in‑Time elevation** | Request → second‑person approval → **time‑boxed** grant that auto‑expires; no standing super‑admin | AC‑6(1); CIS 6.8 |
-| **Four‑eyes on the most sensitive ops** | `users.delete`, role edits, payment refunds, bulk export require a second approver | AC‑5; A.5.3 |
-| **Step‑up MFA for admin actions** | Re‑authenticate with a second factor before privileged actions (ties to Part 5) | IA‑2(1); AC‑6 |
+| **Four‑eyes on the most sensitive ops** | ✅ approver ≠ creator on estimate/expense/payment/booking; `users.delete` + role‑change require step‑up (P1‑9). Bulk export / refunds still to add | AC‑5; A.5.3 |
+| **Step‑up MFA for admin actions** | ✅ `assert_step_up`/`require_step_up` wired onto payment‑confirm, approvals, booking verify, role‑change, hard‑delete; `STEP_UP_ENABLED` flips it on post‑MFA‑rollout (P1‑9) | IA‑2(1); AC‑6 |
 | **Privileged‑action auditing + alerting** | Every privileged/role/permission change is logged to the immutable audit and alerts security | AU‑2/AU‑12; A.8.15 |
 | **Immediate deprovision (leaver)** | ✅ deactivation revokes all tokens at once via `token_version` (A7/B8); keys rotated | AC‑2(3); A.5.18 |
 | **Service accounts are non‑human & least‑priv** | backend→DB, backend→FCM, webhook verifiers: no interactive login, scoped, rotated | AC‑6; A.8.2 |

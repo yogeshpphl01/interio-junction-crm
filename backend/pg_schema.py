@@ -302,6 +302,8 @@ SCHEMA: dict[str, dict] = {
             "screenshot_ref": "TEXT",          # manual-UPI payment screenshot
             "verified_by": "TEXT",
             "verified_at": "TEXT",
+            "created_by": "TEXT",              # who RECORDED the milestone (four-eyes: != confirmer)
+            "confirmed_by": "TEXT",            # who CONFIRMED it Paid (SoD, must differ from created_by)
             "due_date": "TEXT",
             "paid_date": "TEXT",
             "status": "TEXT",

@@ -11,10 +11,13 @@
 """
 import uuid
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
-from core import db, get_current_user, has_permission, require_permission, ensure_project_visible, now_iso
+from core import (
+    db, get_current_user, has_permission, require_permission,
+    deny_self_action, assert_step_up, ensure_project_visible, now_iso,
+)
 from audit import log_audit
 
 router = APIRouter()
@@ -69,12 +72,15 @@ async def list_expenses(user: dict = Depends(get_current_user), project_id: str 
     return await db.expenses.find(filt, {"_id": 0}).sort("created_at", -1).to_list(2000)
 
 
-async def _decide(expense_id: str, user: dict, to_status: str, action: str) -> dict:
+async def _decide(expense_id: str, user: dict, request: Request, to_status: str, action: str) -> dict:
     exp = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
     if not exp:
         raise HTTPException(status_code=404, detail="Expense not found")
     if exp["status"] != "submitted":
         raise HTTPException(status_code=409, detail=f"Expense is already '{exp['status']}'")
+    # Four-eyes: whoever submitted the bill cannot approve/reject it (SoD).
+    deny_self_action(exp.get("submitted_by"), user, "expense")
+    await assert_step_up(request, user)
     await db.expenses.update_one({"id": expense_id}, {"$set": {
         "status": to_status, "approved_by": user["id"], "decided_at": now_iso(),
     }})
@@ -84,10 +90,10 @@ async def _decide(expense_id: str, user: dict, to_status: str, action: str) -> d
 
 
 @router.post("/expenses/{expense_id}/approve")
-async def approve_expense(expense_id: str, payload: DecisionIn = DecisionIn(), user: dict = Depends(require_permission("expenses.approve"))):
-    return await _decide(expense_id, user, "approved", "approved")
+async def approve_expense(expense_id: str, request: Request, payload: DecisionIn = DecisionIn(), user: dict = Depends(require_permission("expenses.approve"))):
+    return await _decide(expense_id, user, request, "approved", "approved")
 
 
 @router.post("/expenses/{expense_id}/reject")
-async def reject_expense(expense_id: str, payload: DecisionIn = DecisionIn(), user: dict = Depends(require_permission("expenses.approve"))):
-    return await _decide(expense_id, user, "rejected", "rejected")
+async def reject_expense(expense_id: str, request: Request, payload: DecisionIn = DecisionIn(), user: dict = Depends(require_permission("expenses.approve"))):
+    return await _decide(expense_id, user, request, "rejected", "rejected")

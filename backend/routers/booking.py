@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
 from core import (
-    db, require_permission, ensure_lead_visible, now_iso,
+    db, require_any_permission, deny_self_action, assert_step_up, ensure_lead_visible, now_iso,
     next_project_code, run_workflow_auto_assign_supervisor, derive_lifecycle_phase,
 )
 from audit import log_audit
@@ -38,7 +38,10 @@ class BookingPaymentIn(BaseModel):
 
 @router.post("/leads/{lead_id}/booking-payment")
 async def record_booking_payment(lead_id: str, payload: BookingPaymentIn, request: Request,
-                                  user: dict = Depends(require_permission("payments.manage"))):
+                                  user: dict = Depends(require_any_permission("payments.confirm", "payments.manage"))):
+    # Verifying the booking money + activating the project is a CONFIRM action —
+    # finance permission + a fresh step-up (SoD, NIST AC-5).
+    await assert_step_up(request, user)
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -53,6 +56,8 @@ async def record_booking_payment(lead_id: str, payload: BookingPaymentIn, reques
     if not est_rows:
         raise HTTPException(status_code=400, detail="No accepted estimate — the customer must accept an estimate before booking")
     est = est_rows[0]
+    # Four-eyes: whoever created the estimate cannot also verify its booking money.
+    deny_self_action(est.get("created_by"), user, "estimate's booking payment")
     amount = round(payload.amount if payload.amount is not None else est["total"] * BOOKING_PERCENT, 2)
     ts = now_iso()
 

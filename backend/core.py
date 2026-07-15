@@ -27,7 +27,10 @@ from auth_utils import decode_token, extract_token
 from scoring import compute_score, DEFAULT_WEIGHTS
 from database import PostgresDatabase
 from pg_schema import LIFECYCLE_PHASES
-from permissions import has_permission, require_permission, permissions_for, role_label, role_color
+from permissions import (
+    has_permission, has_any, require_permission, require_any_permission,
+    permissions_for, role_label, role_color,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -325,8 +328,21 @@ def require_aal2(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
-async def require_step_up(request: Request, user: dict = Depends(get_current_user)) -> dict:
-    """Require a fresh second-factor elevation (X-Step-Up-Token from /auth/mfa/step-up)."""
+# <step-up-gate> Fresh-second-factor enforcement on privileged actions is opt-in
+#   via STEP_UP_ENABLED so it can be switched on once all staff have enrolled MFA
+#   (P1-6) without locking out a not-yet-enrolled team today. When off, the guard
+#   is a pass-through; when on, a valid X-Step-Up-Token from /auth/mfa/step-up is
+#   required. The endpoints are wired now so flipping the flag is the only step. </step-up-gate>
+def step_up_enabled() -> bool:
+    return str(os.environ.get("STEP_UP_ENABLED", "")).lower() in ("1", "true", "yes", "on")
+
+
+async def assert_step_up(request: Request, user: dict) -> None:
+    """Raise 403 unless a fresh step-up token is present (no-op when disabled).
+    Callable inline for actions that only need step-up on a specific transition
+    (e.g. marking a payment Paid) rather than on every call to the endpoint."""
+    if not step_up_enabled():
+        return
     tok = request.headers.get("X-Step-Up-Token")
     if not tok:
         raise HTTPException(status_code=403, detail="Step-up authentication required for this action.")
@@ -336,7 +352,24 @@ async def require_step_up(request: Request, user: dict = Depends(get_current_use
         raise HTTPException(status_code=403, detail="Invalid or expired step-up token.")
     if payload.get("type") != "step_up" or payload.get("sub") != user["id"]:
         raise HTTPException(status_code=403, detail="Invalid step-up token.")
+
+
+async def require_step_up(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    """Dependency form of assert_step_up — for endpoints that always require a
+    fresh second factor. No-op unless STEP_UP_ENABLED (see step-up-gate)."""
+    await assert_step_up(request, user)
     return user
+
+
+def deny_self_action(creator_id, user: dict, what: str = "item") -> None:
+    """Four-eyes / segregation-of-duties: the person who created/submitted a record
+    may not be the one who approves, confirms or verifies it — even CEO/Admin
+    (NIST AC-5, ISO A.5.3, SANS CSC 5). Raises 403 when creator == actor."""
+    if creator_id and creator_id == user.get("id"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Separation of duties: you cannot approve/confirm your own {what}. A second authorised person must action it.",
+        )
 
 
 def require_roles(*roles: str):
