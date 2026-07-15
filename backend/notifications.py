@@ -224,8 +224,12 @@ async def send_password_reset_otp(to_email: str, code: str, full_name: Optional[
     """
     html = _email_shell("Password reset code", body)
     if not _is_configured():
-        logger.warning(f"[DEV OTP] SMTP not configured — reset code for {to_email}: {code}")
-        return False, "SMTP not configured (code logged to server)"
+        from auth_utils import otp_debug_logging
+        if otp_debug_logging():
+            logger.warning(f"[DEV OTP] SMTP not configured — reset code for {to_email}: {code}")
+            return False, "SMTP not configured (code logged to server — DEV)"
+        logger.warning("[DEV OTP] SMTP not configured — reset code NOT logged (set OTP_DEBUG_LOG in dev)")
+        return False, "SMTP not configured (code withheld from logs)"
     return await _send_email([to_email], "Interio Junction · Your password reset code", html)
 
 

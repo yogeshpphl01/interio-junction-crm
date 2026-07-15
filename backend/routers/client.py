@@ -40,7 +40,7 @@ from pydantic import BaseModel
 
 from core import db, get_current_customer, now_iso, STAGES, run_workflow_notify_designer
 from auth_utils import (
-    hash_password, verify_password, decode_token,
+    hash_password, verify_password, decode_token, otp_debug_logging,
     create_customer_access_token, create_customer_refresh_token,
 )
 from audit import log_audit
@@ -91,7 +91,12 @@ async def _deliver_customer_otp(phone: str, code: str, name: Optional[str]) -> N
     (dev) exactly like the CRM's email-reset stub. Swapping in an SMS/WhatsApp
     provider — or Firebase phone auth — is a one-function change here.
     """
-    logger.info(f"[Client OTP] {phone} -> {code} (valid {OTP_TTL_MIN}m){' for ' + name if name else ''}")
+    if otp_debug_logging():
+        logger.info(f"[Client OTP] {phone} -> {code} (valid {OTP_TTL_MIN}m){' for ' + name if name else ''}")
+    else:
+        # Production: never log the code (or the full number). Real delivery goes
+        # through the SMS/WhatsApp/Firebase seam once configured.
+        logger.info(f"[Client OTP] code issued for ***{phone[-4:] if phone else ''} (delivery pending; set OTP_DEBUG_LOG in dev)")
 
 
 async def _leads_for_phone(norm: str) -> list[dict]:

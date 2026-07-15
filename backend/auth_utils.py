@@ -26,6 +26,18 @@ def get_jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
 
 
+def otp_debug_logging() -> bool:
+    """
+    DEV-ONLY: whether plaintext OTP / reset codes may be written to the server log.
+    Off unless OTP_DEBUG_LOG is truthy, and force-off in production (APP_ENV=prod).
+    Codes are secrets and must never reach logs in production
+    (OWASP MASVS-STORAGE / NIST 800-53 AU-9 / CWE-532).
+    """
+    if os.environ.get("APP_ENV", "").lower() in ("prod", "production"):
+        return False
+    return os.environ.get("OTP_DEBUG_LOG", "").lower() in ("1", "true", "yes", "on")
+
+
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode("utf-8"), salt)

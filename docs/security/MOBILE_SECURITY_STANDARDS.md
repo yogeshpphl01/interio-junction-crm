@@ -45,7 +45,7 @@ concrete recommendation for this system.
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
 | A1 | Passwords hashed with a slow, salted KDF | ASVS V2.4; 800‑63B; A.8.24; CWE‑916 | ✅ bcrypt (`auth_utils.hash_password`) | Move work factor to ≥12; migrate to Argon2id when convenient. |
-| A2 | Credentials never logged / in source | 800‑53 IA‑5; A.8.15; CWE‑532 | 🟡 **OTP codes are logged** in the dev delivery stub (`push`/reset) | **Gate OTP/code logging to non‑prod only**; scrub tokens/passwords/PII from all logs. Treat as P0. |
+| A2 | Credentials never logged / in source | 800‑53 IA‑5; A.8.15; CWE‑532 | ✅ OTP/reset codes now gated behind `OTP_DEBUG_LOG` (dev‑only) + force‑off when `APP_ENV=prod`; prod logs a redacted line, never the code | Keep scrubbing tokens/PII from all logs; extend the gate to any future secret log. |
 | A3 | Server‑side brute‑force / lockout on login | 800‑63B §5.2.2; ASVS V2.2; CWE‑307 | 🟡 OTP has 5‑try lockout + resend cooldown; **password login has none** | Add per‑account + per‑IP throttling and progressive backoff/lockout on `/auth/login`. |
 | A4 | Rate‑limit OTP request (anti‑enumeration + SMS‑bombing) | 800‑63B; API4 | 🟡 60s per‑phone cooldown; generic response (no enumeration) | Add per‑IP + global request caps; CAPTCHA/App‑Check on repeated requests. |
 | A5 | Short‑lived access token + refresh | ASVS V3.3; 800‑63B §7 | ✅ access 8h (staff)/24h (customer), refresh 7d/60d, typed | Shorten staff access to ≤1h; see A6/A7. |
@@ -167,7 +167,7 @@ concrete recommendation for this system.
 |---|---|---|---|---|
 | J1 | Audit log of security‑relevant actions | **AU‑2/AU‑12**; A.8.15; CIS 8 | ✅ `audit_log` (login, RBAC actions, payments, estimates, client actions, push) | Ensure logins/failures, MFA events, role changes, privilege use, exports are all captured. |
 | J2 | Tamper‑resistant / append‑only audit | **AU‑9**; A.8.15; CWE‑778 | 🟡 stored in same DB | Ship to a write‑once/SIEM sink; restrict who can read/delete; the existing "purge CEO logs" job must not erase security events. |
-| J3 | No secrets/PII in logs | AU‑9; CWE‑532 | 🟡 **OTP logged in dev** | See A2 — P0 to gate; redact tokens/PII everywhere. |
+| J3 | No secrets/PII in logs | AU‑9; CWE‑532 | ✅ OTP codes gated to dev (`OTP_DEBUG_LOG`); prod logs a masked line | Keep redacting tokens/PII everywhere; add a log‑scrub review to CI. |
 | J4 | Monitoring, alerting & anomaly detection | SI‑4; DE.CM (CSF); CIS 13 | ❌ | Alert on brute force, OTP abuse, privilege escalation, mass export, geo‑anomalies. |
 | J5 | Time sync & correlation ids | AU‑8 | 🟡 UTC ISO timestamps | Add request/correlation ids; NTP on hosts. |
 
