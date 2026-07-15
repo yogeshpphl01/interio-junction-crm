@@ -39,6 +39,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
 from core import db, get_current_customer, now_iso, STAGES, run_workflow_notify_designer, revoke_tokens
+from app_check import require_app_check
 from auth_utils import (
     hash_password, verify_password, decode_token, otp_debug_logging,
     create_customer_access_token, create_customer_refresh_token,
@@ -183,7 +184,7 @@ class RefreshIn(BaseModel):
 
 
 @router.post("/client/auth/request-otp")
-async def request_otp(body: RequestOtpIn, request: Request):
+async def request_otp(body: RequestOtpIn, request: Request, _ac: None = Depends(require_app_check)):
     """
     Step 1 — issue a login code to a registered phone. The response is always the
     same generic message so an attacker cannot use it to discover which numbers
@@ -227,7 +228,7 @@ async def request_otp(body: RequestOtpIn, request: Request):
 
 
 @router.post("/client/auth/verify-otp")
-async def verify_otp(body: VerifyOtpIn, request: Request):
+async def verify_otp(body: VerifyOtpIn, request: Request, _ac: None = Depends(require_app_check)):
     """Step 2 — verify the code and mint a customer session (access + refresh)."""
     invalid = HTTPException(status_code=400, detail="Invalid or expired code")
     norm = normalize_phone(body.phone)

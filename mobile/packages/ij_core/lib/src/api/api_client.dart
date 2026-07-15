@@ -1,4 +1,9 @@
+import 'dart:convert' show base64;
+import 'dart:io' show X509Certificate;
+
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart' show IOHttpClientAdapter;
 import 'package:flutter/foundation.dart' show kReleaseMode;
 
 import '../auth/token_store.dart';
@@ -21,6 +26,8 @@ class ApiClient {
     required String baseUrl,
     required this.tokenStore,
     required this.refreshPath,
+    this.certSha256Pins = const <String>[],
+    this.appCheckToken,
   }) {
     // Enforce TLS in release builds (OWASP MASVS-NETWORK / NIST SC-8). Cleartext
     // is allowed only in debug/profile (e.g. the emulator's http://10.0.2.2).
@@ -36,18 +43,51 @@ class ApiClient {
       validateStatus: (_) => true,
       contentType: 'application/json',
     ));
+    _installCertPinning();
     _dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) async {
       final token = await tokenStore.readAccess();
       if (token != null) {
         options.headers['Authorization'] = 'Bearer $token';
       }
+      // App-attestation header (Firebase App Check / Play Integrity / App Attest).
+      // The backend's app_check gate verifies it on the pre-auth abuse surface.
+      final ac = appCheckToken?.call();
+      if (ac != null && ac.isNotEmpty) {
+        options.headers['X-Firebase-AppCheck'] = ac;
+      }
       handler.next(options);
     }));
+  }
+
+  /// Optional TLS certificate pinning (OWASP MASVS-NETWORK / M5). Supply the
+  /// SHA-256 of the server leaf/intermediate certificate(s) (base64). Pins are
+  /// enforced only in release with a non-empty list, so debug/emulator builds
+  /// and the default (unpinned) configuration are unaffected. Android's native
+  /// `<pin-set>` (SPKI) in network_security_config.xml is the primary mechanism;
+  /// this covers iOS and gives a second, in-code line of defence. Always ship a
+  /// backup pin so a cert rotation cannot brick the app.
+  void _installCertPinning() {
+    if (!kReleaseMode || certSha256Pins.isEmpty) return;
+    final allowed = certSha256Pins.toSet();
+    _dio.httpClientAdapter = IOHttpClientAdapter(
+      validateCertificate: (X509Certificate? cert, String host, int port) {
+        if (cert == null) return false;
+        final fingerprint = base64.encode(sha256.convert(cert.der).bytes);
+        return allowed.contains(fingerprint);
+      },
+    );
   }
 
   late final Dio _dio;
   final TokenStore tokenStore;
   final String refreshPath;
+
+  /// SHA-256 (base64) of the server certificate(s) to pin. Empty = no pinning.
+  final List<String> certSha256Pins;
+
+  /// Returns the current Firebase App Check / attestation token, or null. Called
+  /// per request so a refreshed token is always sent.
+  final String? Function()? appCheckToken;
 
   Future<dynamic> get(String path, {Map<String, dynamic>? query}) =>
       _send('GET', path, query: query);

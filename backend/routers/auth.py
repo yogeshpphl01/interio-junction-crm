@@ -24,6 +24,7 @@ from auth_utils import (
     set_auth_cookies, clear_auth_cookies, decode_token, create_mfa_pending_token,
 )
 from notifications import send_password_reset_otp
+from app_check import require_app_check
 from audit import log_audit
 
 router = APIRouter()
@@ -58,7 +59,7 @@ async def _register_login_failure(user: dict) -> None:
 
 
 @router.post("/auth/login")
-async def login(input: LoginInput, response: Response, request: Request):
+async def login(input: LoginInput, response: Response, request: Request, _ac: None = Depends(require_app_check)):
     email = input.email.lower().strip()
     user = await db.users.find_one({"email": email})
     now = datetime.now(timezone.utc)

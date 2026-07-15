@@ -15,6 +15,10 @@ from a secrets manager.
 | `CORS_ORIGINS` | exact allowed web origins | pin (never `*` with credentials) |
 | `ENFORCE_HTTPS` | reject cleartext (default on in prod) | leave on |
 | `OTP_DEBUG_LOG` | **dev only** — log OTP codes | never set in prod (ignored anyway) |
+| `STEP_UP_ENABLED` | require a fresh second factor on privileged actions (payment confirm, approvals, role change, delete) — P1‑9 | `1` once all staff have enrolled MFA (else those actions 403) |
+| `APP_CHECK_ENABLED` | enforce Firebase App Check attestation on OTP/login — P1‑8 | `1` once every app build sends a valid token (fail‑closed) |
+| `APP_CHECK_PROJECT_NUMBER` | Firebase project number; pins App Check aud/iss | set when `APP_CHECK_ENABLED=1` |
+| `APP_CHECK_JWKS_URL` / `APP_CHECK_JWKS_JSON` | App Check public keys (default Google URL; JSON pins them inline) | optional |
 | `GOOGLE_APPLICATION_CREDENTIALS` / `FCM_*` | push service account | store as a mounted secret, not in the image |
 
 `validate_security_config()` runs at startup and **fails fast** in production if

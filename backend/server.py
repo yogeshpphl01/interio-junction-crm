@@ -16,6 +16,7 @@ from storage import init_storage
 from permissions import refresh_role_cache
 from bootstrap import apply_migrations_and_seed
 from auth_utils import validate_security_config
+from app_check import validate_app_check_config
 from routers import ALL_ROUTERS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -35,7 +36,8 @@ async def on_startup():
     #   serving app can run as a DML-only DB role (ij_app) while migrations run
     #   separately as ij_migrate (python migrate.py). See db/roles.sql.
     # </startup>
-    validate_security_config()  # fail fast on missing/weak secrets in production
+    validate_security_config()   # fail fast on missing/weak secrets in production
+    validate_app_check_config()  # warn loudly on a misconfigured attestation gate
     await db.connect()
     run_migrations = os.environ.get("RUN_MIGRATIONS", "1").lower() in ("1", "true", "yes", "on")
     if run_migrations:
