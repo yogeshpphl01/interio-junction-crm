@@ -294,12 +294,37 @@ async def get_current_user(request: Request) -> dict:
     payload = decode_token(token)
     if payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Invalid token type")
-    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+    user = await db.users.find_one(
+        {"id": payload["sub"]},
+        {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_backup_codes": 0})
     if not user or not user.get("is_active", True):
         raise HTTPException(status_code=401, detail="User not found or inactive")
     user["permissions"] = permissions_for(user["role"])  # for permission-aware UI
     user["role_label"] = role_label(user["role"])         # for badges (incl. custom roles)
     user["role_color"] = role_color(user["role"])
+    user["aal"] = int(payload.get("aal", 1))              # NIST 800-63B assurance level from the token
+    user["amr"] = payload.get("amr", [])
+    return user
+
+
+def require_aal2(user: dict = Depends(get_current_user)) -> dict:
+    """Gate an endpoint on multi-factor (AAL2). Used for sensitive company actions."""
+    if int(user.get("aal", 1)) < 2:
+        raise HTTPException(status_code=403, detail="This action requires multi-factor authentication.")
+    return user
+
+
+async def require_step_up(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    """Require a fresh second-factor elevation (X-Step-Up-Token from /auth/mfa/step-up)."""
+    tok = request.headers.get("X-Step-Up-Token")
+    if not tok:
+        raise HTTPException(status_code=403, detail="Step-up authentication required for this action.")
+    try:
+        payload = decode_token(tok)
+    except HTTPException:
+        raise HTTPException(status_code=403, detail="Invalid or expired step-up token.")
+    if payload.get("type") != "step_up" or payload.get("sub") != user["id"]:
+        raise HTTPException(status_code=403, detail="Invalid step-up token.")
     return user
 
 

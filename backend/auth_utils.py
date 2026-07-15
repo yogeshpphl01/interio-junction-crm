@@ -75,13 +75,42 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
+MFA_PENDING_TTL_MIN = 5  # short window to complete the second factor after password
+
+
+def create_access_token(user_id: str, email: str, role: str, aal: int = 1, amr=None) -> str:
     payload = {
         "sub": user_id,
         "email": email,
         "role": role,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_TTL_MIN),
         "type": "access",
+        "aal": aal,                       # NIST 800-63B authenticator assurance level (1 or 2)
+        "amr": amr or ["pwd"],            # auth methods used (e.g. ["pwd","otp"])
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+
+def create_mfa_pending_token(user_id: str) -> str:
+    """Issued after a correct password when MFA is enrolled; only /auth/mfa/verify
+    accepts it. Grants no access on its own."""
+    payload = {
+        "sub": user_id,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=MFA_PENDING_TTL_MIN),
+        "type": "mfa_pending",
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+
+STEP_UP_TTL_MIN = 5  # elevation window for a sensitive action after a fresh 2nd factor
+
+
+def create_step_up_token(user_id: str) -> str:
+    """Short-lived proof of a fresh second factor, for step-up on sensitive actions."""
+    payload = {
+        "sub": user_id,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=STEP_UP_TTL_MIN),
+        "type": "step_up",
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 

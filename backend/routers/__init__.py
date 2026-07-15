@@ -27,9 +27,10 @@ from .client import router as client_router          # NEW: mobile P0 — Client
 from .devices import router as devices_router        # NEW: mobile P0 — Company App push-token registration
 from .worklist import router as worklist_router      # NEW: mobile P0 — Company App home feed (role-aware worklist)
 from .projects import router as projects_router      # NEW: mobile P0 — Company App project list + detail
+from .mfa import router as mfa_router                 # NEW: security — staff MFA (TOTP)
 
 ALL_ROUTERS = [
-    meta_router, auth_router, users_router, leads_router,
+    meta_router, auth_router, mfa_router, users_router, leads_router,
     measurements_router, revisions_router, payments_router,
     activities_router, documents_router, scoring_router,
     automations_router, analytics_router, audit_router, notifications_router,

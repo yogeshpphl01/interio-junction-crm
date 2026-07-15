@@ -80,9 +80,14 @@ SCHEMA: dict[str, dict] = {
             "created_by": "TEXT",
             "failed_login_count": "INTEGER",    # brute-force lockout (reset on success)
             "locked_until": "TEXT",             # ISO ts; login rejected while in the future
+            # --- MFA (TOTP) ---
+            "mfa_enrolled": "BOOLEAN",
+            "mfa_secret": "TEXT",               # base32 TOTP secret — ENCRYPT AT REST (CMEK / field-level, C5/C6)
+            "mfa_backup_codes": "JSONB",        # [{hash, used}] one-time recovery codes (bcrypt-hashed)
+            "mfa_last_step": "INTEGER",         # last consumed TOTP step (replay protection)
             "created_at": "TEXT",
         },
-        "json": [],
+        "json": ["mfa_backup_codes"],
         "indexes": [
             {"cols": [("email", 1)], "unique": True},
         ],

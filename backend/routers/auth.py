@@ -21,7 +21,7 @@ from core import (
 from permissions import permissions_for, role_label, role_color
 from auth_utils import (
     verify_password, hash_password, create_access_token, create_refresh_token,
-    set_auth_cookies, clear_auth_cookies, decode_token,
+    set_auth_cookies, clear_auth_cookies, decode_token, create_mfa_pending_token,
 )
 from notifications import send_password_reset_otp
 from audit import log_audit
@@ -81,6 +81,12 @@ async def login(input: LoginInput, response: Response, request: Request):
     # Success — clear any accumulated failure/lock state.
     if user.get("failed_login_count") or user.get("locked_until"):
         await db.users.update_one({"id": user["id"]}, {"$set": {"failed_login_count": 0, "locked_until": None}})
+    # If MFA is enrolled, the password is only the FIRST factor — issue a
+    # short-lived pre-auth token and require /auth/mfa/verify before any access.
+    if user.get("mfa_enrolled"):
+        pending = create_mfa_pending_token(user["id"])
+        await log_audit(db, None, "auth.login", "user", user["id"], user["full_name"], {"mfa_required": True}, request)
+        return {"mfa_required": True, "mfa_token": pending}
     access = create_access_token(user["id"], user["email"], user["role"])
     refresh = create_refresh_token(user["id"])
     set_auth_cookies(response, access, refresh)
