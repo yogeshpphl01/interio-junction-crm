@@ -102,3 +102,15 @@ class Session {
   final String? role; // employee only
   final Map<String, dynamic>? raw;
 }
+
+/// Result of an employee login: either a full session, or an MFA challenge that
+/// must be completed with a second factor before a session is issued.
+class LoginResult {
+  LoginResult.session(this.session) : mfaToken = null;
+  LoginResult.mfa(this.mfaToken) : session = null;
+
+  final Session? session;
+  final String? mfaToken;
+
+  bool get mfaRequired => mfaToken != null;
+}
