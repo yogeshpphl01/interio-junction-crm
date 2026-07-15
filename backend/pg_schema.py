@@ -78,6 +78,8 @@ SCHEMA: dict[str, dict] = {
             "is_active": "BOOLEAN",
             "must_change_password": "BOOLEAN",  # set after admin generates a password
             "created_by": "TEXT",
+            "failed_login_count": "INTEGER",    # brute-force lockout (reset on success)
+            "locked_until": "TEXT",             # ISO ts; login rejected while in the future
             "created_at": "TEXT",
         },
         "json": [],

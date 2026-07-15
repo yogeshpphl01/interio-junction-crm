@@ -53,6 +53,7 @@ router = APIRouter()
 OTP_TTL_MIN = 10               # a code is valid for 10 minutes
 OTP_RESEND_COOLDOWN_SEC = 60   # ignore a resend within 60s of the last send
 OTP_MAX_ATTEMPTS = 5           # lock the code after 5 wrong tries
+OTP_MAX_PER_DAY = 10           # cap requests per phone / 24h (anti SMS-bombing)
 
 # Estimate states a customer is allowed to see (internal drafts stay hidden).
 CLIENT_VISIBLE_ESTIMATE_STATES = ["shared", "accepted"]
@@ -197,11 +198,17 @@ async def request_otp(body: RequestOtpIn, request: Request):
         return generic  # unknown number: reveal nothing, send nothing
 
     now = datetime.now(timezone.utc)
+    rows = await db.customer_otps.find({"phone": norm}).sort("created_at", -1).to_list(50)
     # Resend cooldown: honour only the most recent code row for this phone.
-    rows = await db.customer_otps.find({"phone": norm}).sort("created_at", -1).to_list(1)
     if rows and rows[0].get("sent_at"):
         if (now - datetime.fromisoformat(rows[0]["sent_at"])).total_seconds() < OTP_RESEND_COOLDOWN_SEC:
             return generic  # silently respect the cooldown
+    # Daily cap per phone (anti SMS-bombing / abuse). Per-IP + global caps belong
+    # at the gateway (Cloud Armor) — see MOBILE_SECURITY_STANDARDS I1/I2.
+    day_ago = (now - timedelta(hours=24)).isoformat()
+    if sum(1 for r in rows if (r.get("created_at") or "") >= day_ago) >= OTP_MAX_PER_DAY:
+        await log_audit(db, None, "client.otp_failed", "customer", None, norm, {"reason": "daily_cap"}, request)
+        return generic
 
     code = _generate_otp()
     await db.customer_otps.insert_one({

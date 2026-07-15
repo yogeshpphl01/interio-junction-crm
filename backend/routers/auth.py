@@ -39,16 +39,48 @@ def _generate_otp() -> str:
     return f"{secrets.randbelow(10000):04d}"
 
 
+# <lockout> Brute-force protection on password login (OWASP ASVS V2.2 / NIST
+#   800-63B §5.2.2 / CWE-307). After LOGIN_MAX_FAILED wrong tries the account is
+#   locked for a progressively longer window (doubling, capped). </lockout>
+LOGIN_MAX_FAILED = 5
+LOGIN_LOCK_BASE_MIN = 1
+LOGIN_LOCK_CAP_MIN = 60
+
+
+async def _register_login_failure(user: dict) -> None:
+    cnt = (user.get("failed_login_count") or 0) + 1
+    patch: dict = {"failed_login_count": cnt}
+    if cnt >= LOGIN_MAX_FAILED:
+        over = cnt - LOGIN_MAX_FAILED
+        mins = min(LOGIN_LOCK_BASE_MIN * (2 ** over), LOGIN_LOCK_CAP_MIN)
+        patch["locked_until"] = (datetime.now(timezone.utc) + timedelta(minutes=mins)).isoformat()
+    await db.users.update_one({"id": user["id"]}, {"$set": patch})
+
+
 @router.post("/auth/login")
 async def login(input: LoginInput, response: Response, request: Request):
     email = input.email.lower().strip()
     user = await db.users.find_one({"email": email})
+    now = datetime.now(timezone.utc)
+    # Lockout is checked before the password so locked accounts can't be probed.
+    if user and user.get("locked_until"):
+        try:
+            locked = datetime.fromisoformat(user["locked_until"])
+        except (TypeError, ValueError):
+            locked = None
+        if locked and locked > now:
+            await log_audit(db, None, "auth.login_failed", "user", user["id"], email, {"reason": "locked"}, request)
+            raise HTTPException(status_code=429, detail="Too many failed attempts. Please try again later.")
     if not user or not user.get("is_active", True):
         await log_audit(db, None, "auth.login_failed", "user", None, email, {"reason": "not_found_or_inactive"}, request)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not verify_password(input.password, user["password_hash"]):
+        await _register_login_failure(user)
         await log_audit(db, None, "auth.login_failed", "user", user["id"], email, {"reason": "bad_password"}, request)
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Success — clear any accumulated failure/lock state.
+    if user.get("failed_login_count") or user.get("locked_until"):
+        await db.users.update_one({"id": user["id"]}, {"$set": {"failed_login_count": 0, "locked_until": None}})
     access = create_access_token(user["id"], user["email"], user["role"])
     refresh = create_refresh_token(user["id"])
     set_auth_cookies(response, access, refresh)

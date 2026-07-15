@@ -46,8 +46,8 @@ concrete recommendation for this system.
 |---|---|---|---|---|
 | A1 | Passwords hashed with a slow, salted KDF | ASVS V2.4; 800‑63B; A.8.24; CWE‑916 | ✅ bcrypt (`auth_utils.hash_password`) | Move work factor to ≥12; migrate to Argon2id when convenient. |
 | A2 | Credentials never logged / in source | 800‑53 IA‑5; A.8.15; CWE‑532 | ✅ OTP/reset codes now gated behind `OTP_DEBUG_LOG` (dev‑only) + force‑off when `APP_ENV=prod`; prod logs a redacted line, never the code | Keep scrubbing tokens/PII from all logs; extend the gate to any future secret log. |
-| A3 | Server‑side brute‑force / lockout on login | 800‑63B §5.2.2; ASVS V2.2; CWE‑307 | 🟡 OTP has 5‑try lockout + resend cooldown; **password login has none** | Add per‑account + per‑IP throttling and progressive backoff/lockout on `/auth/login`. |
-| A4 | Rate‑limit OTP request (anti‑enumeration + SMS‑bombing) | 800‑63B; API4 | 🟡 60s per‑phone cooldown; generic response (no enumeration) | Add per‑IP + global request caps; CAPTCHA/App‑Check on repeated requests. |
+| A3 | Server‑side brute‑force / lockout on login | 800‑63B §5.2.2; ASVS V2.2; CWE‑307 | ✅ per‑account progressive lockout on `/auth/login` (5 fails → doubling lock, capped 60m; reset on success; 429 while locked) | Add per‑IP throttling at the gateway (I1/I2). |
+| A4 | Rate‑limit OTP request (anti‑enumeration + SMS‑bombing) | 800‑63B; API4 | ✅ 60s per‑phone cooldown + **10/day per‑phone cap**; generic response (no enumeration) | Add per‑IP + global caps + App Check at the gateway. |
 | A5 | Short‑lived access token + refresh | ASVS V3.3; 800‑63B §7 | ✅ access 8h (staff)/24h (customer), refresh 7d/60d, typed | Shorten staff access to ≤1h; see A6/A7. |
 | A6 | Refresh‑token rotation + reuse detection | ASVS V3.3; 800‑63B §7.2 | ❌ refresh tokens are static, reusable | Rotate on every refresh; detect reuse → revoke the family. |
 | A7 | Token revocation / real logout | ASVS V3.3; A.8.5; CWE‑613 | ❌ logout only clears the client; tokens stay valid to expiry | Add a server‑side revocation list (jti/`kid`) or short TTL + rotation; revoke on logout/role‑change/deactivation. |
