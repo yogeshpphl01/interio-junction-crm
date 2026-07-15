@@ -155,7 +155,7 @@ concrete recommendation for this system.
 | I2 | WAF / DDoS protection at the edge | SC‑5; CIS 13 | ❌ | Front with Cloud Armor/WAF; bot protection on auth & import endpoints. |
 | I3 | Secure config / hardened defaults | **API8**; CM‑6/CM‑7 | 🟡 | Disable `/docs` (OpenAPI) in prod or auth‑gate it; remove server banners; run as non‑root; read‑only FS. |
 | I4 | API inventory & versioning | **API9**; CM‑8 | 🟡 contract documented (`API_CONTRACT.md`) | Version the API; retire/monitor old versions; no undocumented/debug routes in prod. |
-| I5 | Least‑privilege DB account | AC‑6; CIS 5; CWE‑250 | 🟡 app connects as `postgres` (superuser) in dev | Prod: dedicated app role with only DML on its schema; separate migration & read‑only reporting roles. |
+| I5 | Least‑privilege DB account | AC‑6; CIS 5; CWE‑250 | ✅ `RUN_MIGRATIONS=0` runs the app with **no DDL**; `db/roles.sql` defines ij_app (DML) / ij_migrate (DDL) / ij_readonly; `migrate.py` applies migrations separately | Set the prod DSN to `ij_app`; run `migrate.py` as `ij_migrate` at deploy. |
 | I6 | Idempotency & replay protection | API6 | ✅ booking (per‑lead), scans (per part/station/stage) | Extend to all state‑changing POSTs that can be retried; add idempotency keys on payments. |
 | I7 | Safe error handling (no stack traces/PII to client) | ASVS V7; CWE‑209 | 🟡 FastAPI detail messages | Ensure 500s return generic messages; log detail server‑side only. |
 | I8 | SSRF protection on outbound calls | **API7**; CWE‑918 | 🟡 outbound to FCM/gateway/storage | Allow‑list outbound hosts; no user‑controlled URLs fetched server‑side. |
