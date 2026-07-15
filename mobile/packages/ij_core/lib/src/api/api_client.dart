@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 
 import '../auth/token_store.dart';
 
@@ -21,6 +22,12 @@ class ApiClient {
     required this.tokenStore,
     required this.refreshPath,
   }) {
+    // Enforce TLS in release builds (OWASP MASVS-NETWORK / NIST SC-8). Cleartext
+    // is allowed only in debug/profile (e.g. the emulator's http://10.0.2.2).
+    if (kReleaseMode && !baseUrl.startsWith('https://')) {
+      throw StateError('Refusing a non-HTTPS API base URL in a release build: $baseUrl '
+          '(pass --dart-define=IJ_API_BASE=https://…).');
+    }
     _dio = Dio(BaseOptions(
       baseUrl: baseUrl,
       connectTimeout: const Duration(seconds: 15),

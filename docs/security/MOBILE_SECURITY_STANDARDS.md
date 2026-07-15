@@ -92,10 +92,10 @@ concrete recommendation for this system.
 
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
-| D1 | TLS 1.2+ everywhere, no cleartext | **MASVS‑NETWORK‑1**; M5; SC‑8; CWE‑319 | 🟡 HTTPS assumed; default base URL is `http://10.0.2.2` (emulator only) | Enforce HTTPS in prod builds; Android `network_security_config` `cleartextTrafficPermitted=false`; ATS on iOS. |
+| D1 | TLS 1.2+ everywhere, no cleartext | **MASVS‑NETWORK‑1**; M5; SC‑8; CWE‑319 | ✅ backend rejects cleartext in prod (`ENFORCE_HTTPS`); `ij_core` refuses a non‑HTTPS base URL in release; Android/iOS config in `mobile/NETWORK_SECURITY.md` | Apply the network‑security‑config + ATS at `flutter create` time; add pinning (D2). |
 | D2 | Certificate / public‑key pinning | MASVS‑NETWORK‑2; CWE‑295 | ❌ | Pin the API cert/SPKI in both apps (Dio `badCertificateCallback` or `http` pinning); plan rotation/backup pins. |
 | D3 | Reject invalid/expired certs (no bypass) | CWE‑295/297 | 🟡 default Dio validates | Never disable cert validation; the proxy‑bypass note in ops must not ship to prod. |
-| D4 | HSTS + secure response headers | ASVS V14.4; A.8.20 | ❌ | Add HSTS, `X‑Content‑Type‑Options`, `Referrer‑Policy`, `Cache‑Control:no‑store` on auth responses at the gateway. |
+| D4 | HSTS + secure response headers | ASVS V14.4; A.8.20 | ✅ security‑headers middleware: HSTS (prod), `X‑Content‑Type‑Options`, `X‑Frame‑Options`, `Referrer‑Policy`, `Cache‑Control:no‑store` on `/api` | Add CSP if any web UI is served. |
 | D5 | CORS locked down | ASVS V14.5; API8 | 🟡 `CORS_ORIGINS` configurable, defaults `*` (creds off) | Pin exact origins for any web; mobile uses no CORS — keep `*` off in prod. |
 | D6 | Mutual TLS / signed webhooks for gateways | API10; SC‑8 | 🟡 Razorpay webhook signature in reference code | Verify Razorpay signature on the live path; allow‑list gateway IPs; validate Infurnia payloads. |
 
