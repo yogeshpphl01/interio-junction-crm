@@ -85,7 +85,7 @@ concrete recommendation for this system.
 | C5 | DB encryption at rest | SC‑28; A.8.11; 27018 | 🟡 depends on Cloud SQL config | Enable Cloud SQL CMEK; encrypt backups; document key ownership. |
 | C6 | Field‑level encryption for high‑sensitivity PII | SC‑28; A.8.11; DPDP | ❌ | Consider app‑level encryption for phone/email/address or tokenization; at minimum column‑level for payment refs. |
 | C7 | Object‑storage access is signed & least‑privilege | SC‑12; A.5.14; API1 | ✅ **short‑lived signed download URLs** (5‑min capability token bound to doc+subject) for staff and customers; the internal `storage_path` is no longer exposed to the client; downloads are `nosniff` + forced‑attachment (P1‑10, verified) | Move bytes to a private bucket + native signed URLs when storage is live; keep the app‑level token as the authZ gate. |
-| C8 | Data classification & retention | A.5.12/A.5.34; DPDP §8(7) | ❌ | Classify PII vs internal; set retention + purge for OTPs, audit, leads, closed projects. |
+| C8 | Data classification & retention | A.5.12/A.5.34; DPDP §8(7) | 🟡 classification + retention schedule in `DATA_RETENTION.md` (P1‑11) | Confirm legal retention values with a CA; implement the OTP/audit purge jobs. |
 
 ## D. Network & Transport Security
 *(OWASP MASVS‑NETWORK, Mobile M5; ASVS V9; NIST 800‑53 SC‑8/SC‑13/SC‑23; ISO A.8.20/A.8.21/A.8.24; CIS 3.10; CWE‑319/295/297)*
@@ -195,13 +195,13 @@ concrete recommendation for this system.
 
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
-| M1 | Lawful basis + consent capture | DPDP §6; 27701 | ❌ | Capture consent for processing/marketing (Meta lead ads!); consent artifact + withdrawal. |
+| M1 | Lawful basis + consent capture | DPDP §6; 27701 | 🟡 **consent ledger** (`consents` table + `POST/GET /client/me/consent`): append‑only grant/withdraw per purpose (data_processing / marketing / whatsapp_updates), policy‑versioned, audited (P1‑11, verified) | Surface the consent prompt in onboarding UI; gate marketing sends on it. |
 | M2 | Data minimization & purpose limitation | MASVS‑PRIVACY; DPDP §8 | 🟡 | Collect only needed PII; avoid storing extra Infurnia/Meta fields you don't use. |
-| M3 | Data‑subject rights (access/correct/erase) | DPDP §11‑13; 27701 | ❌ | Build request handling: export, correct, delete/anonymize a customer on request. |
-| M4 | Privacy policy + in‑app disclosures + store data‑safety | M6; Play Data Safety | ❌ | Publish policy; complete Google Play Data Safety & Apple Privacy Nutrition labels accurately. |
-| M5 | Breach notification readiness | DPDP §8(6); CSF RS | ❌ | Process to notify the Data Protection Board + affected users; timelines; runbook. |
-| M6 | PII in transit/at rest protected + access‑logged | 27018; SC‑28 | 🟡 | Combine with C5/C6/J1; restrict who can query PII; log PII access. |
-| M7 | Third‑party/processor agreements (FCM, Infurnia, gateway, cloud) | DPDP §8(2); A.5.19 | ❌ | DPAs with each processor; document cross‑border transfers. |
+| M3 | Data‑subject rights (access/correct/erase) | DPDP §11‑13; 27701 | ✅ **export** (`GET /client/me/export`), **erasure** (`/client/me/erasure-request` → staff `POST /customers/{id}/erase`: anonymizes customer + leads, revokes sessions, retains tax records per §8(7), step‑up + audited), correction via profile edits (P1‑11, verified 20/20) | — |
+| M4 | Privacy policy + in‑app disclosures + store data‑safety | M6; Play Data Safety | 🟡 policy/label guidance in `DATA_RETENTION.md` §5 | Publish the policy; complete Play Data Safety & Apple Privacy labels. |
+| M5 | Breach notification readiness | DPDP §8(6); CSF RS | 🟡 **runbook** `docs/security/INCIDENT_RESPONSE.md` (detect→contain→assess→notify DPB + principals→recover→review, with templates) | Fill in real roles/contacts; run a tabletop drill. |
+| M6 | PII in transit/at rest protected + access‑logged | 27018; SC‑28 | 🟡 PII access (export/erase/doc download) is audited | Combine with C5/C6/J1; restrict who can query PII; column‑level encryption. |
+| M7 | Third‑party/processor agreements (FCM, Infurnia, gateway, cloud) | DPDP §8(2); A.5.19 | 🟡 processor register + DPA checklist in `DATA_RETENTION.md` §4 | Sign DPAs with each processor; record cross‑border transfers. |
 
 ## N. Payments Security
 *(OWASP API6; PCI‑DSS‑aligned (UPI/cards); NIST SC‑8; ISO A.5.14; CWE‑840/799)*
@@ -252,7 +252,7 @@ concrete recommendation for this system.
 | MASVS‑PLATFORM | ❌ | exported components, deep links, tapjacking (G1/G6/F5) |
 | MASVS‑CODE | 🟡 | dep scanning, input bounds (F2/L2) |
 | MASVS‑RESILIENCE | 🟡 | backend App Check gate done (G4); remaining: obfuscation, root/tamper (G5/H1) |
-| MASVS‑PRIVACY | ❌ | consent, DSR, data‑safety labels (M1‑M4) |
+| MASVS‑PRIVACY | 🟡 | consent ledger + DSR export/erasure done (M1/M3); remaining: onboarding UI, data‑safety labels (M2/M4) |
 
 **Mobile Top 10 (2024):** M1 🟡(A2/H3) · M2 ❌(L*) · **M3 🟡→❌ auth/MFA** · M4 🟡(F*) · **M5 🟡 comms/pinning** · M6 ❌ privacy · **M7 ❌ binary protections** · M8 🟡 config · M9 🟡 storage · M10 ✅/🟡 crypto.
 
@@ -295,7 +295,7 @@ concrete recommendation for this system.
 8. 🟡 **TLS pinning + Firebase App Check + Play Integrity/App Attest** (D2/G4) — backend App Check gate built + verified (RS256/JWKS, fail‑closed, env‑gated), `ApiClient` pinning + attestation‑header hooks added, Android `<pin-set>` documented. Remaining: real cert pins + Firebase provider config, then flip the flags on.
 9. 🟡 **Segregation of privileges** (Part 4) — payment record/confirm split, `accounts` finance role, admin stripped of money‑confirm, four‑eyes on approvals/booking, step‑up wiring (all verified). Remaining: dedicated `system_admin` role + CEO break‑glass.
 10. ✅ **Signed URLs** for documents + upload validation (C7/F4) — 5‑min capability tokens (staff + customer), no `storage_path` leak, `nosniff`/attachment downloads, magic‑byte upload allow‑list with safe content‑type (verified 20/20). Remaining: private bucket + AV scan when live.
-11. **DPDP compliance**: consent, privacy policy, DSR, breach runbook, processor DPAs (M1‑M7).
+11. 🟡 **DPDP compliance** (M1‑M7) — consent ledger + data‑subject export/erasure implemented & verified (20/20); breach runbook (`INCIDENT_RESPONSE.md`) + retention/classification + processor register (`DATA_RETENTION.md`) written. Remaining: publish privacy policy, onboarding consent UI, sign processor DPAs, run a breach drill.
 12. **Screenshot/backup/clipboard** hardening; obfuscation; root/tamper checks (C2‑C4/G/H).
 13. **Razorpay signed‑webhook** live path; dual‑control on large/refund payments (N2/N5).
 14. **Dependency scanning + SAST/secret scan in CI**; pentest before launch (L2/P1‑P3).

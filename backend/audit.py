@@ -43,6 +43,9 @@ ACTIONS = {
     "scoring.weights_saved",
     "notification.sent", "notification.failed",
     "notifications.settings_saved",
+    # DPDP / privacy (P1-11)
+    "privacy.consent_recorded", "privacy.data_exported",
+    "privacy.erasure_requested", "privacy.erased", "privacy.erasure_rejected",
 }
 
 

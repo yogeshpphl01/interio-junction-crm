@@ -431,12 +431,50 @@ SCHEMA: dict[str, dict] = {
             "phone": "TEXT", "email": "TEXT", "auth_uid": "TEXT",
             "is_active": "BOOLEAN", "last_login_at": "TEXT", "created_at": "TEXT",
             "token_version": "INTEGER",   # bump to instantly revoke the customer's tokens
+            "erased_at": "TEXT",          # DPDP erasure: PII anonymized at this ts (P1-11)
         },
         "json": [],
         "indexes": [
             {"cols": [("phone", 1)], "unique": True},
             {"cols": [("email", 1)], "unique": True},
             {"cols": [("lead_id", 1)], "unique": False},
+        ],
+    },
+    # <dpdp> Consent ledger + erasure requests (India DPDP Act 2023 §6/§11-13). </dpdp>
+    "consents": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "subject_type": "TEXT",       # "customer"
+            "subject_id": "TEXT",
+            "purpose": "TEXT",            # data_processing | marketing | ...
+            "policy_version": "TEXT",
+            "granted": "BOOLEAN",         # append-only ledger; withdrawal = new granted=false row
+            "source": "TEXT",             # client_app | web | staff
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("subject_id", 1)], "unique": False},
+            {"cols": [("subject_id", 1), ("purpose", 1)], "unique": False},
+        ],
+    },
+    "erasure_requests": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "customer_id": "TEXT",
+            "status": "TEXT",             # pending | completed | rejected
+            "reason": "TEXT",
+            "requested_at": "TEXT",
+            "decided_by": "TEXT",
+            "decided_at": "TEXT",
+            "note": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("customer_id", 1)], "unique": False},
+            {"cols": [("status", 1)], "unique": False},
         ],
     },
 

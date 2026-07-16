@@ -561,3 +561,105 @@ async def client_document_signed_url(doc_id: str, customer: dict = Depends(get_c
         "expires_in": DOC_URL_TTL_MIN * 60,
         "filename": safe_filename(rec.get("original_filename")),
     }
+
+
+# ============================================================================
+# <section name="DPDP — consent + data-subject rights (P1-11)">
+#   India DPDP Act 2023: consent capture/withdrawal (§6), right to access &
+#   data portability (export), and right to erasure (§11-13) via a request the
+#   business actions (transactional records are retained per §8(7) retention).
+# </section>
+CONSENT_PURPOSES = {"data_processing", "marketing", "whatsapp_updates"}
+PRIVACY_POLICY_VERSION = "2026-01"
+
+
+class ConsentIn(BaseModel):
+    purpose: str
+    granted: bool
+    policy_version: Optional[str] = None
+
+
+class ErasureIn(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/client/me/consent")
+async def client_record_consent(body: ConsentIn, request: Request,
+                                customer: dict = Depends(get_current_customer)):
+    """Record a consent decision (grant or withdraw). Append-only ledger."""
+    if body.purpose not in CONSENT_PURPOSES:
+        raise HTTPException(status_code=400, detail=f"Unknown purpose. Allowed: {sorted(CONSENT_PURPOSES)}")
+    row = {
+        "id": str(uuid.uuid4()),
+        "subject_type": "customer",
+        "subject_id": customer["id"],
+        "purpose": body.purpose,
+        "policy_version": body.policy_version or PRIVACY_POLICY_VERSION,
+        "granted": bool(body.granted),
+        "source": "client_app",
+        "created_at": now_iso(),
+    }
+    await db.consents.insert_one(row)
+    await log_audit(db, None, "privacy.consent_recorded", "customer", customer["id"], customer.get("full_name"),
+                    {"purpose": body.purpose, "granted": bool(body.granted)}, request)
+    row.pop("_id", None)
+    return row
+
+
+@router.get("/client/me/consent")
+async def client_get_consent(customer: dict = Depends(get_current_customer)):
+    """Current consent state (latest decision per purpose) + full history."""
+    rows = await db.consents.find({"subject_id": customer["id"]}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    current = {}
+    for r in rows:  # rows are newest-first, so the first seen per purpose is current
+        current.setdefault(r["purpose"], r["granted"])
+    return {"policy_version": PRIVACY_POLICY_VERSION, "current": current, "history": rows}
+
+
+@router.get("/client/me/export")
+async def client_export_data(customer: dict = Depends(get_current_customer)):
+    """Right to access + data portability: everything we hold about this customer,
+    in a structured, customer-safe bundle."""
+    lead_ids = await _my_lead_ids(customer)
+    pids = await _my_project_ids(customer)
+    leads = await db.leads.find({"customer_id": customer["id"]}, {"_id": 0}).to_list(1000)
+    projects = await db.projects.find({"id": {"$in": pids}}, {"_id": 0}).to_list(1000) if pids else []
+    estimates = await db.estimates.find({"lead_id": {"$in": lead_ids}}, {"_id": 0}).to_list(1000) if lead_ids else []
+    payments = await db.payments.find({"project_id": {"$in": pids}}, {"_id": 0}).to_list(1000) if pids else []
+    docs = await db.documents.find({"project_id": {"$in": pids}}, {"_id": 0}).to_list(1000) if pids else []
+    consents = await db.consents.find({"subject_id": customer["id"]}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return {
+        "generated_at": now_iso(),
+        "profile": {k: customer.get(k) for k in ("id", "full_name", "phone", "email", "created_at", "last_login_at")},
+        "leads": [{k: l.get(k) for k in ("id", "full_name", "phone", "email", "stage", "status", "created_at")} for l in leads],
+        "projects": [{k: p.get(k) for k in ("id", "project_code", "contract_value", "activated_at", "created_at")} for p in projects],
+        "estimates": [{k: e.get(k) for k in ("id", "version", "status", "total", "currency", "created_at")} for e in estimates],
+        "payments": [_payment_view(p) for p in payments],
+        "documents": [_doc_view(d) for d in docs if not d.get("is_deleted") and d.get("type") in CLIENT_VISIBLE_DOC_TYPES],
+        "consents": consents,
+    }
+
+
+@router.post("/client/me/erasure-request")
+async def client_request_erasure(body: ErasureIn, request: Request,
+                                 customer: dict = Depends(get_current_customer)):
+    """Right to erasure: lodge a request the business actions. Idempotent — a
+    pending request is reused. Actual erasure is a controlled staff step so that
+    transactional/tax records can be retained per DPDP §8(7)."""
+    existing = await db.erasure_requests.find_one(
+        {"customer_id": customer["id"], "status": "pending"}, {"_id": 0})
+    if existing:
+        return {"ok": True, "status": "pending", "request_id": existing["id"], "message": "An erasure request is already pending."}
+    row = {
+        "id": str(uuid.uuid4()),
+        "customer_id": customer["id"],
+        "status": "pending",
+        "reason": (body.reason or "")[:500],
+        "requested_at": now_iso(),
+        "decided_by": None, "decided_at": None, "note": None,
+    }
+    await db.erasure_requests.insert_one(row)
+    await log_audit(db, None, "privacy.erasure_requested", "customer", customer["id"], customer.get("full_name"),
+                    {"request_id": row["id"]}, request)
+    return {"ok": True, "status": "pending", "request_id": row["id"],
+            "message": "Your erasure request has been received. We'll process it per the DPDP Act."}
