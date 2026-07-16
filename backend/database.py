@@ -42,8 +42,42 @@ from typing import Any, Optional
 import asyncpg
 
 from pg_schema import SCHEMA, get_table, EXTRA_COLUMN
+import pii_crypto
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# <section name="PII field encryption (transparent, C6)">
+#   When a table declares `"encrypted": [...]` and PII_ENCRYPTION_KEY is set, the
+#   shim stores those columns AES-GCM-encrypted and maintains a `<col>_bidx`
+#   blind index for equality lookups + UNIQUE constraints. All no-ops when the
+#   key is unset, so default behaviour is unchanged. See pii_crypto.py.
+# ============================================================================
+def _encrypted_cols(table: dict) -> list[str]:
+    return table.get("encrypted") or []
+
+
+def _bidx_cols(table: dict) -> set[str]:
+    return {c + "_bidx" for c in _encrypted_cols(table)}
+
+
+def encrypt_doc(table: dict, doc: dict) -> dict:
+    """Return a copy of `doc` with encrypted columns ciphered + their blind index
+    set. No-op unless the table has encrypted columns and encryption is enabled."""
+    enc = _encrypted_cols(table)
+    if not enc or not pii_crypto.pii_enabled():
+        return doc
+    out = dict(doc)
+    for col in enc:
+        if col in out:
+            val = out[col]
+            if val is None:
+                out[col + "_bidx"] = None
+            else:
+                out[col + "_bidx"] = pii_crypto.blind_index(str(val))
+                out[col] = pii_crypto.encrypt(str(val))
+    return out
 
 
 # ============================================================================
@@ -132,6 +166,21 @@ def _condition(table: dict, key: str, cond: Any, params: list) -> str:
         ors = [o for o in ors if o != "()"]
         return "(" + " OR ".join(ors) + ")" if ors else "TRUE"
 
+    # <pii-lookup> The stored value of an encrypted column is ciphertext, so
+    #   equality / $in / $ne are rewritten to query its deterministic blind index
+    #   (<col>_bidx). Other operators fall through (the app never range/regex-es
+    #   phone/email). No-op when encryption is off. </pii-lookup>
+    if cond is not None and key in _encrypted_cols(table) and pii_crypto.pii_enabled():
+        bref = _q(key + "_bidx")
+        if isinstance(cond, dict) and any(str(k).startswith("$") for k in cond):
+            if "$in" in cond:
+                items = [pii_crypto.blind_index(str(v)) for v in cond["$in"] if v is not None]
+                return f"{bref} = ANY({_ph(params, items)})" if items else "FALSE"
+            if "$ne" in cond and cond["$ne"] is not None:
+                return f"{bref} IS DISTINCT FROM {_ph(params, pii_crypto.blind_index(str(cond['$ne'])))}"
+        elif not isinstance(cond, dict):
+            return f"{bref} = {_ph(params, pii_crypto.blind_index(str(cond)))}"
+
     ref, sql_type = _colref(table, key)
 
     # Operator object, e.g. {"$gte": "..."} or {"$regex": "x", "$options": "i"}.
@@ -204,6 +253,7 @@ def _split_doc(table: dict, doc: dict) -> tuple[dict, dict]:
 
 def build_insert(name: str, table: dict, doc: dict) -> tuple[str, list]:
     """Produce an INSERT statement + ordered params for one document."""
+    doc = encrypt_doc(table, doc)   # cipher PII columns + set blind index (C6)
     declared, extra = _split_doc(table, doc)
     params: list = []
     cols: list[str] = []
@@ -220,6 +270,7 @@ def build_insert(name: str, table: dict, doc: dict) -> tuple[str, list]:
 
 def build_update_set(table: dict, set_doc: dict, params: list) -> str:
     """Produce the 'SET ...' body for an UPDATE, appending params as it goes."""
+    set_doc = encrypt_doc(table, set_doc)   # cipher PII columns + refresh blind index (C6)
     declared, extra = _split_doc(table, set_doc)
     parts = [f"{_q(k)} = {_ph(params, v)}" for k, v in declared.items()]
     if extra:
@@ -273,10 +324,16 @@ def row_to_doc(table: dict, record: "asyncpg.Record", projection: Optional[dict]
     None-valued columns are omitted so the shape matches sparse Mongo documents.
     """
     doc: dict = {}
+    enc_cols = _encrypted_cols(table)
+    bidx_cols = _bidx_cols(table)
     for col in table["columns"]:
+        if col in bidx_cols:
+            continue   # internal blind-index surrogate — never exposed to callers
         if col in record.keys():
             v = record[col]
             if v is not None:
+                if col in enc_cols:
+                    v = pii_crypto.decrypt(v)   # ciphertext -> plaintext (no-op for legacy/plain)
                 doc[col] = v
     extra = record["extra"] if "extra" in record.keys() else None
     if extra:

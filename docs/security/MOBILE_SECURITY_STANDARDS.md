@@ -83,7 +83,7 @@ concrete recommendation for this system.
 | C3 | Screenshot/recents & screen‑capture protection on sensitive screens | MASVS‑PLATFORM; M9 | 🟡 `SecureScreen`/`SecureScreenMixin` in `ij_core` applied to OTP + MFA challenge/enroll (P1‑12); native FLAG_SECURE handler + iOS snapshot‑blur documented | Wire the MainActivity handler; add the mixin to payment/document screens. |
 | C4 | Keyboard cache / autofill / clipboard hygiene | MASVS‑STORAGE; M9 | ✅ OTP + MFA code fields set `enableSuggestions:false`, `autocorrect:false`, `enableIMEPersonalizedLearning:false` (P1‑12) | Clear clipboard after any copy‑code affordance. |
 | C5 | DB encryption at rest | SC‑28; A.8.11; 27018 | 🟡 depends on Cloud SQL config | Enable Cloud SQL CMEK; encrypt backups; document key ownership. |
-| C6 | Field‑level encryption for high‑sensitivity PII | SC‑28; A.8.11; DPDP | ❌ | Consider app‑level encryption for phone/email/address or tokenization; at minimum column‑level for payment refs. |
+| C6 | Field‑level encryption for high‑sensitivity PII | SC‑28; A.8.11; DPDP | 🟡 **transparent AES‑256‑GCM field encryption + HMAC blind index** for customer phone/email (`pii_crypto.py` + shim), so lookups & UNIQUE still work; env‑gated (`PII_ENCRYPTION_KEY`), backward‑compatible, with `migrate_pii.py` backfill (verified: 30 checks on + 40 off) | Supply a **KMS‑managed key** in prod; extend `encrypted:` to leads/staff PII. |
 | C7 | Object‑storage access is signed & least‑privilege | SC‑12; A.5.14; API1 | ✅ **short‑lived signed download URLs** (5‑min capability token bound to doc+subject) for staff and customers; the internal `storage_path` is no longer exposed to the client; downloads are `nosniff` + forced‑attachment (P1‑10, verified) | Move bytes to a private bucket + native signed URLs when storage is live; keep the app‑level token as the authZ gate. |
 | C8 | Data classification & retention | A.5.12/A.5.34; DPDP §8(7) | 🟡 classification + retention schedule in `DATA_RETENTION.md` (P1‑11) | Confirm legal retention values with a CA; implement the OTP/audit purge jobs. |
 
@@ -303,7 +303,7 @@ concrete recommendation for this system.
 **P2 — mature the program:**
 15. 🟡 Monitoring/alerting + SIEM, anomaly detection (J4) — signals + routing specified in `BACKUP_DR.md` §5; wire in prod.
 16. 🟡 Backup/restore tests, IR & DR plans (O1‑O3) — **IR plan done** (`INCIDENT_RESPONSE.md`); backup/DR plan + restore procedure + drills in `BACKUP_DR.md`; enable on prod infra.
-17. 🟡 Field‑level PII encryption / tokenization; classification & retention (C6/C8) — **retention/classification done** (`DATA_RETENTION.md`); PII encryption **designed** (`THREAT_MODEL.md` §5, deterministic/blind‑index) — implement behind a flag with a KMS.
+17. ✅ Field‑level PII encryption / classification & retention (C6/C8) — retention/classification done (`DATA_RETENTION.md`); **PII encryption implemented** (`pii_crypto.py` + shim: AES‑GCM + blind index, env‑gated, `migrate_pii.py`; verified 30 on / 40 off). Remaining: prod **KMS** key + extend to leads/staff PII.
 18. 🟡 Threat models, security training, periodic re‑test (P3‑P5) — **STRIDE threat model done** (`THREAT_MODEL.md`); remaining: independent pentest + MASTG before GA, staff training.
 
 ---

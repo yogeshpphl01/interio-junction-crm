@@ -456,11 +456,20 @@ SCHEMA: dict[str, dict] = {
             "is_active": "BOOLEAN", "last_login_at": "TEXT", "created_at": "TEXT",
             "token_version": "INTEGER",   # bump to instantly revoke the customer's tokens
             "erased_at": "TEXT",          # DPDP erasure: PII anonymized at this ts (P1-11)
+            # <pii-encryption> Blind-index surrogates for the encrypted phone/email
+            #   columns (HMAC of the normalized value) — carry the UNIQUE constraint
+            #   and enable equality lookups when PII_ENCRYPTION_KEY is set. Unused
+            #   (NULL) when encryption is off. See pii_crypto.py / C6. </pii-encryption>
+            "phone_bidx": "TEXT",
+            "email_bidx": "TEXT",
         },
         "json": [],
+        "encrypted": ["phone", "email"],   # stored AES-GCM-encrypted; looked up via *_bidx
         "indexes": [
-            {"cols": [("phone", 1)], "unique": True},
+            {"cols": [("phone", 1)], "unique": True},   # harmless in encrypted mode (ciphertext never collides)
             {"cols": [("email", 1)], "unique": True},
+            {"cols": [("phone_bidx", 1)], "unique": True},   # real uniqueness in encrypted mode
+            {"cols": [("email_bidx", 1)], "unique": True},
             {"cols": [("lead_id", 1)], "unique": False},
         ],
     },

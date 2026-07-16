@@ -67,7 +67,7 @@ backend. Maps each threat to the control that addresses it (✅ built & verified
 | Leaking internal storage paths / documents | ✅ signed URLs, no `storage_path` exposed, per-project/customer authZ (P1-10) |
 | PII over-exposure to staff by role | ✅ RBAC + lead/project visibility scoping; ✅ least-privilege re-map (P1-9) |
 | Enumeration of customers via OTP endpoint | ✅ generic responses, no existence oracle (A4) |
-| PII at rest readable if DB dumped | 🟡 TLS + least-priv DB; ⬜ **column-level encryption** for phone/email (C6 — see §5) |
+| PII at rest readable if DB dumped | ✅ **AES-256-GCM field encryption + blind index** for customer phone/email (env-gated `PII_ENCRYPTION_KEY`, §5); TLS + least-priv DB. ⬜ prod KMS key + extend to leads/staff |
 | Data-subject can't see/remove their data | ✅ DPDP export + erasure (P1-11) |
 
 ### Denial of service (availability)
@@ -96,21 +96,34 @@ backend. Maps each threat to the control that addresses it (✅ built & verified
    `APP_CHECK_ENABLED`, supply cert pins, wire FLAG_SECURE/manifest (P1-8/P1-12).
 3. **Per-IP / global rate limiting** at the edge (Cloud Armor) — not just
    per-account (I1/I2).
-4. **PII column-level encryption** for phone/email at rest (C6, §5).
+4. ✅ **PII column-level encryption** for phone/email at rest — *implemented* (§5, C6); remaining: a prod **KMS** key + extending `encrypted:` to leads/staff PII.
 5. **Real-time alerting + backups/DR** — needs prod infra (`BACKUP_DR.md`).
 6. **Customer second factor** for high-risk actions (biometric step-up, A9).
 
-## 5. Note on PII column-level encryption (C6)
+## 5. PII column-level encryption (C6) — implemented
 
 `phone` and `email` have **unique** constraints and are the login/lookup keys, so
-naive encryption breaks lookups. Options, in order of preference:
-- **App-layer deterministic encryption** (AES-SIV) for the lookup columns +
-  randomized encryption for other PII — keeps uniqueness/equality lookups while
-  protecting a raw DB dump. Requires a KMS-managed key and a migration.
-- **Postgres `pgcrypto`** with a blind-index (HMAC of the normalized value) for
-  lookup + encrypted payload for display.
-- Keep TLS + least-priv DB + tokenized refs as the interim control (current
-  state) and encrypt when a KMS is in place.
+naive encryption breaks lookups. The implemented scheme (`pii_crypto.py` + the
+data-layer shim) is the **encrypted-column + blind-index** pattern:
 
-This is a careful data-layer change (migration + every read/write path touching
+- The stored value is **AES-256-GCM** encrypted (randomised — same plaintext →
+  different ciphertext), so a raw DB dump reveals nothing.
+- A companion **`<col>_bidx`** holds a deterministic **HMAC-SHA256** of the
+  normalised value; the UNIQUE constraint and every equality/`$in`/`$ne` lookup
+  are transparently rewritten onto it, so uniqueness and phone/email lookups keep
+  working. Blind-index columns are never returned to callers.
+- Enc + index subkeys are derived from a single **`PII_ENCRYPTION_KEY`** (base64
+  32-byte master). It is **env-gated and backward compatible**: unset → plaintext
+  as before; `decrypt()` passes through legacy plaintext, and `migrate_pii.py`
+  backfills existing rows idempotently.
+
+Verified: 30 checks with the flag on (round-trip, at-rest ciphertext, blind-index
+lookup, UNIQUE enforcement, update re-encryption, migration, end-to-end OTP) and
+40 with it off (unchanged). **Production TODO:** load `PII_ENCRYPTION_KEY` from a
+**KMS / Secret Manager** (the loader in `pii_crypto._master_key` is the single
+swap point), rotate keys with a versioned prefix, and extend the `encrypted:`
+declaration to leads/staff PII.
+
+Historical alternatives considered: Postgres `pgcrypto`, AES-SIV deterministic
+encryption. This is a careful data-layer change (migration + every read/write path touching
 phone/email) — design first, roll out behind a flag.

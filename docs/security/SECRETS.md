@@ -22,6 +22,7 @@ from a secrets manager.
 | `RAZORPAY_WEBHOOK_SECRET` | HMAC secret to verify Razorpay webhooks — P1‑13 | set when the gateway is live (endpoint is inert/503 without it) |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | gateway order creation (when enabled) | Secret Manager only |
 | `PAYMENT_STEP_UP_THRESHOLD` | ₹ amount at/above which confirm+refund force a step‑up — P1‑13 | set once MFA is rolled out (0/unset = off) |
+| `PII_ENCRYPTION_KEY` | base64 32‑byte master key for field‑level PII encryption (phone/email) — C6 | load from **KMS/Secret Manager**; run `migrate_pii.py` after enabling; unset = plaintext |
 | `GOOGLE_APPLICATION_CREDENTIALS` / `FCM_*` | push service account | store as a mounted secret, not in the image |
 
 `validate_security_config()` runs at startup and **fails fast** in production if

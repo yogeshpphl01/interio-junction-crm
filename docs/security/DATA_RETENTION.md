@@ -7,7 +7,7 @@ principal rights), ISO/IEC **27701**, ISO/IEC **27018**, NIST **SC-28**.
 
 | Class | Examples | Handling |
 |---|---|---|
-| **Sensitive PII** | customer phone, email, name, address; staff recovery email | Encrypt in transit (TLS) + at rest; access-logged; least-privilege; candidate for column-level encryption (C6). |
+| **Sensitive PII** | customer phone, email, name, address; staff recovery email | Encrypt in transit (TLS) + at rest; access-logged; least-privilege. **Field-level encryption for customer phone/email is implemented** (AES-GCM + blind index, env-gated `PII_ENCRYPTION_KEY`, C6). |
 | **Financial** | payments, estimates, contract value, UPI/gateway refs | Retained for tax/legal; restrict who can query; four-eyes on confirm (P1-9). |
 | **Operational** | leads, projects, measurements, revisions, tickets, checklists | Business records; PII within them is de-identified on erasure. |
 | **Authentication** | password hashes, TOTP secrets, backup codes, OTP rows, tokens | Never logged; hashed/short-lived; `token_version` revocation. |
