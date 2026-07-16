@@ -186,8 +186,8 @@ concrete recommendation for this system.
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
 | L1 | Pin & vet dependencies (pub, pip) | **M2**; A.8.30 | 🟡 versioned pubspec/requirements | Commit lockfiles; pin ranges; review new deps. |
-| L2 | SCA / vulnerability scanning of deps | SR‑3; CIS 7/16 | ✅ **pip‑audit** in CI (`security-ci.yml`), fails on new CVEs, **no ignore list** — the 8 starlette CVEs were cleared by upgrading to fastapi 0.139.2 / starlette 1.3.1 (re‑verified 99/99). See `SECURITY_CI.md` (P1‑14) | Add Flutter/Dart dep scan (`osv‑scanner`/`dart pub outdated`). |
-| L3 | Verify plugin/SDK provenance (FCM, scanner, Razorpay) | M2; SR‑4 | 🟡 | Use official SDKs only; verify signatures/checksums; SBOM. |
+| L2 | SCA / vulnerability scanning of deps | SR‑3; CIS 7/16 | ✅ **pip‑audit** (Python, no ignore list) + **`dart pub outdated`/osv‑scanner** (Flutter) + **CycloneDX SBOM** artifact in CI (`security-ci.yml`). See `SECURITY_CI.md` | — |
+| L3 | Verify plugin/SDK provenance (FCM, scanner, Razorpay) | M2; SR‑4 | 🟡 **CycloneDX SBOM** generated per build (`security-ci.yml` → `sbom`) | Use official SDKs only; verify signatures/checksums; retain SBOM per release. |
 | L4 | Build pipeline integrity | SA‑10; SLSA | ❌ | Signed, reproducible CI builds; protected branches; no third‑party build steps handling secrets. |
 
 ## M. Privacy & Data Protection
@@ -229,7 +229,7 @@ concrete recommendation for this system.
 
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
-| P1 | SAST / secret scanning in CI | SA‑11; CIS 16 | ✅ **bandit** SAST (medium+) + **gitleaks** secret scan + **pip‑audit** SCA in CI, blocking on new findings (`security-ci.yml`, `secret-scan.yml`; P0‑5/P1‑14) | Add Dart analyzer rules + Semgrep for deeper coverage. |
+| P1 | SAST / secret scanning in CI | SA‑11; CIS 16 | ✅ **bandit** + **semgrep** (offline rules + OWASP packs) SAST + **gitleaks** secrets + **pip‑audit**/**dart pub outdated** SCA + **CycloneDX SBOM** in CI, blocking on new findings (`security-ci.yml`, `secret-scan.yml`) | — |
 | P2 | DAST / API fuzzing | SA‑11 | ❌ | Run ZAP/API fuzzing against staging; test authZ (BOLA/BFLA) automatically. |
 | P3 | Periodic pentest + MASTG mobile test | 800‑163; A.8.29 | ❌ | Independent pentest of both apps + API before GA; retest after major changes. |
 | P4 | Threat modeling | SA‑15; A.8.25 | ✅ **`THREAT_MODEL.md`** — STRIDE across both apps + backend, assets, trust boundaries (dual‑BFF), each threat mapped to its control, residual‑risk register (P2) | Revisit on major changes. |
@@ -298,7 +298,7 @@ concrete recommendation for this system.
 11. 🟡 **DPDP compliance** (M1‑M7) — consent ledger + data‑subject export/erasure implemented & verified (20/20); breach runbook (`INCIDENT_RESPONSE.md`) + retention/classification + processor register (`DATA_RETENTION.md`) written. Remaining: publish privacy policy, onboarding consent UI, sign processor DPAs, run a breach drill.
 12. 🟡 **Screenshot/backup/clipboard** hardening; obfuscation; root/tamper (C2‑C4/G/H) — keyboard hygiene applied, `SecureScreen` on OTP/MFA screens; manifest/build/root‑detection recipes in `MOBILE_HARDENING.md`. Remaining: wire the native FLAG_SECURE handler + manifest flags + obfuscated release build.
 13. ✅ **Razorpay signed‑webhook** live path + dual‑control on refunds/large payments (N2/N5/D6) — HMAC‑verified, idempotent, amount‑matched webhook; refund needs a dedicated finance permission + four‑eyes + step‑up (verified 15/15). Remaining: gateway order‑creation (needs Razorpay SDK + credentials) + IP allow‑list.
-14. ✅ **Dependency scanning + SAST/secret scan in CI** (L2/P1) — bandit + pip‑audit + gitleaks wired and blocking (`security-ci.yml`); fastapi/starlette upgraded to clear all 8 CVEs (no ignore list). Remaining: Flutter dep scan, pentest before launch.
+14. ✅ **Dependency scanning + SAST/secret scan in CI** (L2/P1) — bandit + **semgrep** + pip‑audit + **Flutter dep scan** + **CycloneDX SBOM** + gitleaks, all wired and blocking (`security-ci.yml`); fastapi/starlette upgraded to clear all 8 CVEs. Remaining: independent pentest before launch.
 
 **P2 — mature the program:**
 15. 🟡 Monitoring/alerting + SIEM, anomaly detection (J4) — signals + routing specified in `BACKUP_DR.md` §5; wire in prod.

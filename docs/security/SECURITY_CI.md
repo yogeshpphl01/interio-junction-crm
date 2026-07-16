@@ -5,8 +5,11 @@ Three CI-time gates guard every push and pull request (P0-5 + P1-14):
 | Gate | Tool | Workflow | What it catches |
 |---|---|---|---|
 | **Secret scanning** | gitleaks | `.github/workflows/secret-scan.yml` | committed credentials / tokens / keys (`.gitleaks.toml`) |
-| **SAST** | bandit | `.github/workflows/security-ci.yml` → `sast` | insecure code patterns (CWE Top 25): command injection, weak crypto, insecure deserialization, etc. |
-| **Dependency scan** | pip-audit | `.github/workflows/security-ci.yml` → `dependencies` | known-vulnerable Python packages (OSV / PyPI advisories) |
+| **SAST** | bandit | `security-ci.yml` → `sast` | insecure code patterns (CWE Top 25): command injection, weak crypto, insecure deserialization, etc. |
+| **SAST** | semgrep | `security-ci.yml` → `semgrep` | curated offline rules (`.semgrep/ij-rules.yml`: TLS verify=False, `shell=True`, eval/exec, unsafe yaml.load, f-string SQL in routers) **plus** the public `p/python` + `p/security-audit` packs |
+| **Dependency scan** | pip-audit | `security-ci.yml` → `dependencies` | known-vulnerable Python packages (OSV / PyPI advisories) |
+| **Dependency scan** | dart pub outdated / osv-scanner | `security-ci.yml` → `flutter-deps` | outdated / vulnerable Flutter/Dart packages (both apps + `ij_core`) |
+| **SBOM** | pip-audit (CycloneDX) | `security-ci.yml` → `sbom` | CycloneDX SBOM artifact per build (`sbom.cyclonedx.json`) |
 
 ## SAST threshold
 
@@ -35,9 +38,14 @@ CVE (or a new vulnerable package) fails the build.
 
 Run locally: `cd backend && pip-audit -r requirements-runtime.txt`.
 
+## Local runs
+
+- semgrep (offline rules): `semgrep --config .semgrep/ij-rules.yml --exclude .venv --exclude tests backend`
+- SBOM: `cd backend && pip-audit -r requirements-runtime.txt --format cyclonedx-json -o sbom.cyclonedx.json`
+
 ## Not yet wired (recommended next)
 
-- **Flutter/Dart deps**: add `dart pub outdated` + OSV-Scanner on
-  `pubspec.lock` for both apps.
-- **Semgrep** rulesets (owasp-top-ten, secrets) for deeper SAST.
-- **SBOM** (CycloneDX) generation + artifact retention per release.
+- **DAST**: ZAP baseline against a staging deploy (an in-process authZ/BOLA/BFLA
+  test suite covers the object/function-level checks).
+- **Semgrep registry packs** are advisory in CI (network-dependent); the offline
+  `ij-rules.yml` set is blocking.
