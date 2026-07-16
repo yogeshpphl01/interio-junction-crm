@@ -126,6 +126,23 @@ def create_refresh_token(user_id: str, tv: int = 0) -> str:
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
+DOC_URL_TTL_MIN = 5  # a signed document URL is a short-lived capability
+
+
+def create_doc_download_token(doc_id: str, subject: str, audience: str, ttl_min: int = DOC_URL_TTL_MIN) -> str:
+    """A signed, short-lived capability to download ONE document (P1-10). Bound to
+    the doc id and the requesting subject (a user or a customer id) + audience, so
+    a leaked link expires quickly and cannot be repointed at another document."""
+    payload = {
+        "sub": subject,
+        "doc": doc_id,
+        "aud_kind": audience,             # "staff" | "customer" — which world minted it
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=ttl_min),
+        "type": "doc_download",
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+
 # ---- Client App (customer) tokens -----------------------------------------
 # A SEPARATE token family for the Client App. The distinct "customer_access"
 # type is the dual-BFF security boundary: get_current_user rejects anything

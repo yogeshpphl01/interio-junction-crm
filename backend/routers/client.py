@@ -43,7 +43,9 @@ from app_check import require_app_check
 from auth_utils import (
     hash_password, verify_password, decode_token, otp_debug_logging,
     create_customer_access_token, create_customer_refresh_token,
+    create_doc_download_token, DOC_URL_TTL_MIN,
 )
+from file_validation import safe_filename
 from audit import log_audit
 from push import register_device, unregister_device
 
@@ -145,12 +147,13 @@ async def _my_project_ids(customer: dict) -> list[str]:
 
 
 def _doc_view(d: dict) -> dict:
-    """Customer-safe document metadata. storage_path is the ref the app turns into
-    a signed download URL — no bytes are served here."""
+    """Customer-safe document metadata. The internal storage_path is NOT exposed;
+    the app fetches bytes via GET /client/documents/{id}/signed-url, which mints a
+    short-lived signed download URL (P1-10)."""
     return {
         "id": d["id"], "type": d.get("type"), "filename": d.get("original_filename"),
         "content_type": d.get("content_type"), "size": d.get("size"),
-        "storage_path": d.get("storage_path"), "created_at": d.get("created_at"),
+        "created_at": d.get("created_at"),
     }
 
 
@@ -541,3 +544,20 @@ async def client_documents(customer: dict = Depends(get_current_customer)):
                if not d.get("is_deleted") and d.get("type") in CLIENT_VISIBLE_DOC_TYPES]
     visible.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     return {"documents": visible}
+
+
+@router.get("/client/documents/{doc_id}/signed-url")
+async def client_document_signed_url(doc_id: str, customer: dict = Depends(get_current_customer)):
+    """Mint a short-lived signed download URL for a customer-visible document.
+    Access is checked here (the doc must belong to one of the customer's projects
+    and be a client-visible type); the returned URL is the capability (P1-10)."""
+    pids = await _my_project_ids(customer)
+    rec = await db.documents.find_one({"id": doc_id, "is_deleted": {"$ne": True}}, {"_id": 0})
+    if not rec or rec.get("project_id") not in pids or rec.get("type") not in CLIENT_VISIBLE_DOC_TYPES:
+        raise HTTPException(status_code=404, detail="Not found")
+    token = create_doc_download_token(doc_id, customer["id"], "customer")
+    return {
+        "url": f"/api/documents/download?token={token}",
+        "expires_in": DOC_URL_TTL_MIN * 60,
+        "filename": safe_filename(rec.get("original_filename")),
+    }

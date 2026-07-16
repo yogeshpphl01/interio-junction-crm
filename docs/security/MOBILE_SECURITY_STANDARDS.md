@@ -84,7 +84,7 @@ concrete recommendation for this system.
 | C4 | Keyboard cache / autofill / clipboard hygiene | MASVS‑STORAGE; M9 | ❌ | Disable suggestions on OTP/amount fields; clear clipboard for copied codes; `autocorrect:false`, `enableSuggestions:false`. |
 | C5 | DB encryption at rest | SC‑28; A.8.11; 27018 | 🟡 depends on Cloud SQL config | Enable Cloud SQL CMEK; encrypt backups; document key ownership. |
 | C6 | Field‑level encryption for high‑sensitivity PII | SC‑28; A.8.11; DPDP | ❌ | Consider app‑level encryption for phone/email/address or tokenization; at minimum column‑level for payment refs. |
-| C7 | Object‑storage access is signed & least‑privilege | SC‑12; A.5.14; API1 | 🟡 storage disabled in this env; `storage_path` returned as ref | Serve documents via **short‑lived signed URLs**, authZ‑checked per customer/project; private bucket only. |
+| C7 | Object‑storage access is signed & least‑privilege | SC‑12; A.5.14; API1 | ✅ **short‑lived signed download URLs** (5‑min capability token bound to doc+subject) for staff and customers; the internal `storage_path` is no longer exposed to the client; downloads are `nosniff` + forced‑attachment (P1‑10, verified) | Move bytes to a private bucket + native signed URLs when storage is live; keep the app‑level token as the authZ gate. |
 | C8 | Data classification & retention | A.5.12/A.5.34; DPDP §8(7) | ❌ | Classify PII vs internal; set retention + purge for OTPs, audit, leads, closed projects. |
 
 ## D. Network & Transport Security
@@ -118,7 +118,7 @@ concrete recommendation for this system.
 | F1 | Parameterized DB queries (no SQLi) | **CWE‑89**; SI‑10 | ✅ asyncpg parameter binding throughout (no string‑built SQL) | Keep; ban f‑string SQL in review; add a lint/CI check. |
 | F2 | Server‑side schema validation of all input | ASVS V5.1; M4; API8 | ✅ Pydantic models on every endpoint | Add bounds (amount>0 exists), length caps, enum checks on free‑text (kind/type already enum‑checked). |
 | F3 | Output encoding / no injection into logs, PDFs, deep links | CWE‑79/117 | 🟡 | Encode user text in any generated PDF/HTML; sanitize before logging (also A2). |
-| F4 | File‑upload validation (docs, screenshots) | ASVS V12; CWE‑434 | ❌ storage disabled now | On enabling uploads: validate type/size/magic bytes, store outside webroot, scan for malware, random names. |
+| F4 | File‑upload validation (docs, screenshots) | ASVS V12; CWE‑434 | ✅ `file_validation.py`: **magic‑byte allow‑list** (PDF/PNG/JPEG/GIF/WEBP/DWG/DXF), rejects HTML/SVG‑script/executables/empty, derives a **safe content‑type** (never the uploader's), sanitises filenames, 25 MB cap, random object names (P1‑10, verified) | Add AV/malware scanning on the pipeline when storage is live. |
 | F5 | Deep‑link / intent input treated as untrusted | MASVS‑PLATFORM; M4 | ❌ | Validate all deep‑link params server‑side; don't act on `data.type` from push without re‑authZ. |
 
 ## G. Mobile Platform Hardening (Android + iOS)
@@ -294,7 +294,7 @@ concrete recommendation for this system.
 7. ✅ **Refresh‑token rotation + revocation**, immediate deactivation (A6‑A8/B8) — `token_version` kills live tokens on logout / credential change / deactivation / role change; refresh rotates both tokens (verified 25/25).
 8. 🟡 **TLS pinning + Firebase App Check + Play Integrity/App Attest** (D2/G4) — backend App Check gate built + verified (RS256/JWKS, fail‑closed, env‑gated), `ApiClient` pinning + attestation‑header hooks added, Android `<pin-set>` documented. Remaining: real cert pins + Firebase provider config, then flip the flags on.
 9. 🟡 **Segregation of privileges** (Part 4) — payment record/confirm split, `accounts` finance role, admin stripped of money‑confirm, four‑eyes on approvals/booking, step‑up wiring (all verified). Remaining: dedicated `system_admin` role + CEO break‑glass.
-10. **Signed URLs** for documents; private storage; upload validation (C7/F4).
+10. ✅ **Signed URLs** for documents + upload validation (C7/F4) — 5‑min capability tokens (staff + customer), no `storage_path` leak, `nosniff`/attachment downloads, magic‑byte upload allow‑list with safe content‑type (verified 20/20). Remaining: private bucket + AV scan when live.
 11. **DPDP compliance**: consent, privacy policy, DSR, breach runbook, processor DPAs (M1‑M7).
 12. **Screenshot/backup/clipboard** hardening; obfuscation; root/tamper checks (C2‑C4/G/H).
 13. **Razorpay signed‑webhook** live path; dual‑control on large/refund payments (N2/N5).
