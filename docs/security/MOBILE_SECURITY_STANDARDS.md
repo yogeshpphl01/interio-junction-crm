@@ -79,9 +79,9 @@ concrete recommendation for this system.
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
 | C1 | Tokens/secrets in Keystore/Keychain, not plain prefs | **MASVS‑STORAGE‑1**; M9 | ✅ `flutter_secure_storage` (Keystore/Keychain) | Set Android `EncryptedSharedPreferences`/StrongBox where available; iOS `first_unlock_this_device`. |
-| C2 | No sensitive data in logs/cache/backups | MASVS‑STORAGE‑2; M9 | 🟡 | Set Android `allowBackup=false` + `fullBackupContent` excludes; disable auto‑backup of tokens; no PII in Flutter logs. |
-| C3 | Screenshot/recents & screen‑capture protection on sensitive screens | MASVS‑PLATFORM; M9 | ❌ | `FLAG_SECURE` (Android) / hide on background (iOS) for login, payments, estimates, PII. |
-| C4 | Keyboard cache / autofill / clipboard hygiene | MASVS‑STORAGE; M9 | ❌ | Disable suggestions on OTP/amount fields; clear clipboard for copied codes; `autocorrect:false`, `enableSuggestions:false`. |
+| C2 | No sensitive data in logs/cache/backups | MASVS‑STORAGE‑2; M9 | 🟡 `allowBackup=false` + data‑extraction excludes documented (`MOBILE_HARDENING.md`, P1‑12); tokens in Keystore/Keychain | Apply the manifest flags at `flutter create`; keep PII out of Flutter logs. |
+| C3 | Screenshot/recents & screen‑capture protection on sensitive screens | MASVS‑PLATFORM; M9 | 🟡 `SecureScreen`/`SecureScreenMixin` in `ij_core` applied to OTP + MFA challenge/enroll (P1‑12); native FLAG_SECURE handler + iOS snapshot‑blur documented | Wire the MainActivity handler; add the mixin to payment/document screens. |
+| C4 | Keyboard cache / autofill / clipboard hygiene | MASVS‑STORAGE; M9 | ✅ OTP + MFA code fields set `enableSuggestions:false`, `autocorrect:false`, `enableIMEPersonalizedLearning:false` (P1‑12) | Clear clipboard after any copy‑code affordance. |
 | C5 | DB encryption at rest | SC‑28; A.8.11; 27018 | 🟡 depends on Cloud SQL config | Enable Cloud SQL CMEK; encrypt backups; document key ownership. |
 | C6 | Field‑level encryption for high‑sensitivity PII | SC‑28; A.8.11; DPDP | ❌ | Consider app‑level encryption for phone/email/address or tokenization; at minimum column‑level for payment refs. |
 | C7 | Object‑storage access is signed & least‑privilege | SC‑12; A.5.14; API1 | ✅ **short‑lived signed download URLs** (5‑min capability token bound to doc+subject) for staff and customers; the internal `storage_path` is no longer exposed to the client; downloads are `nosniff` + forced‑attachment (P1‑10, verified) | Move bytes to a private bucket + native signed URLs when storage is live; keep the app‑level token as the authZ gate. |
@@ -126,11 +126,11 @@ concrete recommendation for this system.
 
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
-| G1 | Minimize exported components; protect IPC | MASVS‑PLATFORM‑1; CWE‑926 | ❌ (defaults) | Set `android:exported=false` unless required; guard exported activities/receivers with permissions/signature. |
-| G2 | Disable Android backup of app data | MASVS‑STORAGE; M8 | ❌ | `android:allowBackup=false`, `android:fullBackupContent`, exclude token store. |
+| G1 | Minimize exported components; protect IPC | MASVS‑PLATFORM‑1; CWE‑926 | 🟡 documented in `MOBILE_HARDENING.md` (P1‑12) | Set `android:exported=false` except the launcher at `flutter create`. |
+| G2 | Disable Android backup of app data | MASVS‑STORAGE; M8 | 🟡 `allowBackup=false` + data‑extraction rules documented (P1‑12) | Apply in the manifest; exclude the token store. |
 | G3 | Network Security Config | MASVS‑NETWORK; M5 | 🟡 full `network_security_config.xml` (no cleartext, no user CAs, `<pin-set>`) documented in `mobile/NETWORK_SECURITY.md` | Drop it into `android/app/src/main/res/xml/` + reference in the manifest at `flutter create` time. |
 | G4 | App integrity / anti‑fraud attestation | 800‑163; M7 | 🟡 **backend App Check gate built + verified** (`backend/app_check.py`: RS256 JWKS verify, aud/iss/exp pinned, fail‑closed, env‑gated `APP_CHECK_ENABLED`) and wired onto OTP request/verify + login; `ApiClient` sends `X-Firebase-AppCheck` | Enable Play Integrity/App Attest providers in Firebase; init App Check in each app; flip `APP_CHECK_ENABLED=1` once builds send tokens. |
-| G5 | Root/jailbreak & emulator/hook detection | MASVS‑RESILIENCE; M7 | ❌ | Detect root/jailbreak, Frida/Xposed, debugger; degrade/deny high‑risk actions (payments, approvals). |
+| G5 | Root/jailbreak & emulator/hook detection | MASVS‑RESILIENCE; M7 | 🟡 approach documented (`MOBILE_HARDENING.md`): detect → **degrade + step‑up** on high‑risk actions rather than hard‑block (P1‑12) | Add a detection package; wire the step‑up gate. |
 | G6 | Tapjacking / overlay protection | MASVS‑PLATFORM; CWE‑1021 | ❌ | `filterTouchesWhenObscured` on sensitive buttons (approve, pay). |
 | G7 | Secure WebViews (if any) | MASVS‑PLATFORM; CWE‑749 | N/A now | If added: disable JS unless needed, no `file://`/universal access, validate URLs. |
 | G8 | Minimum OS version & patch baseline | 800‑124; A.8.8 | 🟡 minSdk per Flutter default | Set `minSdkVersion ≥ 24` (26+ preferred); drop known‑vulnerable OS versions. |
@@ -141,8 +141,8 @@ concrete recommendation for this system.
 
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
-| H1 | Code shrinking + obfuscation | MASVS‑RESILIENCE‑3; M7 | ❌ | Enable R8/ProGuard + `flutter build --obfuscate --split‑debug‑info`; strip symbols. |
-| H2 | Anti‑debugging / anti‑tamper checks | MASVS‑RESILIENCE‑1/2; M7 | ❌ | Detect debugger/tamper (checksum, signature verify); pair with G4/G5. |
+| H1 | Code shrinking + obfuscation | MASVS‑RESILIENCE‑3; M7 | 🟡 R8/ProGuard + `--obfuscate --split‑debug‑info` build recipe documented (P1‑12) | Enable in the release build config. |
+| H2 | Anti‑debugging / anti‑tamper checks | MASVS‑RESILIENCE‑1/2; M7 | 🟡 signature/installer verification + root detection guidance (P1‑12) | Add checksum/signature verify; pair with G4/G5. |
 | H3 | No secrets/keys hard‑coded in the binary | M1/M10; CWE‑798 | ✅ (config via `--dart‑define`; no keys in code; `firebase_options` are public IDs) | Keep; never embed API secrets/signing keys in the app. |
 | H4 | Certificate‑pin + attestation for critical flows | M7 | 🟡 pinning hook (D2) + App Check gate (G4) in place and verified; step‑up already gates payment/approval (P1‑9) | Turn on pins + `APP_CHECK_ENABLED` in prod. |
 
@@ -245,7 +245,7 @@ concrete recommendation for this system.
 
 | Category | Status | Key gaps |
 |---|---|---|
-| MASVS‑STORAGE | 🟡 | screenshot/backup/clipboard (C2‑C4) |
+| MASVS‑STORAGE | 🟡 | keyboard hygiene done (C4); screenshot/backup in code+docs, apply manifest flags (C2/C3) |
 | MASVS‑CRYPTO | ✅/🟡 | JWT → asymmetric + rotation (E2/E4) |
 | MASVS‑AUTH | ✅/🟡 | ✅ MFA (staff), token revocation, refresh rotation, login lockout (A3/A7/A8); remaining: passkeys for admins, per‑token reuse detection (A6) |
 | MASVS‑NETWORK | 🟡 | HTTPS enforced; pinning hook + Android `<pin-set>` scaffolded — supply prod pins (D1‑D2) |
@@ -296,7 +296,7 @@ concrete recommendation for this system.
 9. 🟡 **Segregation of privileges** (Part 4) — payment record/confirm split, `accounts` finance role, admin stripped of money‑confirm, four‑eyes on approvals/booking, step‑up wiring (all verified). Remaining: dedicated `system_admin` role + CEO break‑glass.
 10. ✅ **Signed URLs** for documents + upload validation (C7/F4) — 5‑min capability tokens (staff + customer), no `storage_path` leak, `nosniff`/attachment downloads, magic‑byte upload allow‑list with safe content‑type (verified 20/20). Remaining: private bucket + AV scan when live.
 11. 🟡 **DPDP compliance** (M1‑M7) — consent ledger + data‑subject export/erasure implemented & verified (20/20); breach runbook (`INCIDENT_RESPONSE.md`) + retention/classification + processor register (`DATA_RETENTION.md`) written. Remaining: publish privacy policy, onboarding consent UI, sign processor DPAs, run a breach drill.
-12. **Screenshot/backup/clipboard** hardening; obfuscation; root/tamper checks (C2‑C4/G/H).
+12. 🟡 **Screenshot/backup/clipboard** hardening; obfuscation; root/tamper (C2‑C4/G/H) — keyboard hygiene applied, `SecureScreen` on OTP/MFA screens; manifest/build/root‑detection recipes in `MOBILE_HARDENING.md`. Remaining: wire the native FLAG_SECURE handler + manifest flags + obfuscated release build.
 13. ✅ **Razorpay signed‑webhook** live path + dual‑control on refunds/large payments (N2/N5/D6) — HMAC‑verified, idempotent, amount‑matched webhook; refund needs a dedicated finance permission + four‑eyes + step‑up (verified 15/15). Remaining: gateway order‑creation (needs Razorpay SDK + credentials) + IP allow‑list.
 14. 🟡 **Dependency scanning + SAST/secret scan in CI** (L2/P1) — bandit + pip‑audit + gitleaks wired and blocking (`security-ci.yml`). Remaining: Flutter dep scan, upgrade fastapi/starlette to clear the tracked CVE exception, pentest before launch.
 

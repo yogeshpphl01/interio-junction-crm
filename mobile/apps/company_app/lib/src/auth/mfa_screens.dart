@@ -15,7 +15,7 @@ class MfaChallengeScreen extends StatefulWidget {
   State<MfaChallengeScreen> createState() => _MfaChallengeScreenState();
 }
 
-class _MfaChallengeScreenState extends State<MfaChallengeScreen> {
+class _MfaChallengeScreenState extends State<MfaChallengeScreen> with SecureScreenMixin {
   final _code = TextEditingController();
   bool _busy = false;
   String? _error;
@@ -64,6 +64,10 @@ class _MfaChallengeScreenState extends State<MfaChallengeScreen> {
                 controller: _code,
                 autofocus: true,
                 keyboardType: TextInputType.number,
+                // MFA code hygiene: keep it out of keyboard autofill/suggestions.
+                enableSuggestions: false,
+                autocorrect: false,
+                enableIMEPersonalizedLearning: false,
                 inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9a-fA-F]'))],
                 decoration: const InputDecoration(labelText: 'Code', border: OutlineInputBorder()),
                 onSubmitted: (_) => _busy ? null : _verify(),
@@ -97,7 +101,7 @@ class MfaEnrollScreen extends StatefulWidget {
   State<MfaEnrollScreen> createState() => _MfaEnrollScreenState();
 }
 
-class _MfaEnrollScreenState extends State<MfaEnrollScreen> {
+class _MfaEnrollScreenState extends State<MfaEnrollScreen> with SecureScreenMixin {
   late Future<Map<String, dynamic>> _status;
   Map<String, dynamic>? _enroll; // {secret, otpauth_uri}
   final _code = TextEditingController();
@@ -201,6 +205,9 @@ class _MfaEnrollScreenState extends State<MfaEnrollScreen> {
         TextField(
           controller: _code,
           keyboardType: TextInputType.number,
+          enableSuggestions: false,
+          autocorrect: false,
+          enableIMEPersonalizedLearning: false,
           decoration: const InputDecoration(labelText: 'Code', border: OutlineInputBorder()),
         ),
         if (_error != null) ...[
