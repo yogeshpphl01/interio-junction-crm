@@ -796,6 +796,11 @@ SCHEMA: dict[str, dict] = {
             "ip": "TEXT",
             "user_agent": "TEXT",
             "created_at": "TEXT",
+            # <tamper-evidence> Hash chain: each entry's `hash` = SHA256 over its
+            #   canonical content + the previous entry's `hash`. Deleting or editing
+            #   any row breaks the chain (verify_audit_chain). AU-9 / A.8.15. </tamper-evidence>
+            "prev_hash": "TEXT",
+            "hash": "TEXT",
         },
         "json": ["metadata"],
         "indexes": [

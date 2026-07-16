@@ -47,6 +47,9 @@ LOGIN_MAX_FAILED = 5
 LOGIN_LOCK_BASE_MIN = 1
 LOGIN_LOCK_CAP_MIN = 60
 
+# Super-accounts whose every login is alerted (break-glass — see SoD Part 4).
+BREAK_GLASS_ROLES = {"ceo"}
+
 
 async def _register_login_failure(user: dict) -> None:
     cnt = (user.get("failed_login_count") or 0) + 1
@@ -82,6 +85,11 @@ async def login(input: LoginInput, response: Response, request: Request, _ac: No
     # Success — clear any accumulated failure/lock state.
     if user.get("failed_login_count") or user.get("locked_until"):
         await db.users.update_one({"id": user["id"]}, {"$set": {"failed_login_count": 0, "locked_until": None}})
+    # Break-glass: a login to the all-powerful super-account is alerted in real
+    # time so it can be a sealed, emergency-only credential (SoD Part 4 / PAM).
+    if user.get("role") in BREAK_GLASS_ROLES:
+        await log_audit(db, None, "auth.break_glass", "user", user["id"], user.get("full_name"),
+                        {"alert": True, "reason": "privileged super-account login"}, request)
     # If MFA is enrolled, the password is only the FIRST factor — issue a
     # short-lived pre-auth token and require /auth/mfa/verify before any access.
     if user.get("mfa_enrolled"):

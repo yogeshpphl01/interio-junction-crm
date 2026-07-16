@@ -43,8 +43,24 @@ async def lifespan(app: FastAPI):
         init_storage()
     except Exception as e:
         logger.error(f"Storage init error: {e}")
+    await _warn_shared_accounts()
     yield
     await db.close()
+
+
+async def _warn_shared_accounts():
+    """Accountability policy (SoD Part 4): flag generic/shared logins so they are
+    replaced with named individual accounts (the CEO super-account should be
+    break-glass only)."""
+    try:
+        generic = ("admin@", "ceo@", "info@", "support@", "test@", "tester@")
+        rows = await db.users.find({}, {"_id": 0, "email": 1, "role": 1, "is_active": 1}).to_list(1000)
+        shared = [r["email"] for r in rows
+                  if r.get("is_active", True) and any(str(r.get("email", "")).startswith(g) for g in generic)]
+        if shared:
+            logger.warning("Account policy: replace generic/shared logins with named accounts -> %s", ", ".join(sorted(shared)))
+    except Exception as e:
+        logger.debug(f"account policy check skipped: {e}")
 
 
 app = FastAPI(title="Interio Junction CRM API", lifespan=lifespan)

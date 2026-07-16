@@ -11,8 +11,16 @@
 from typing import Optional, Any
 from fastapi import APIRouter, Depends
 from core import db, require_permission, ROLE_CEO, ROLE_ADMIN
+from audit import verify_audit_chain
 
 router = APIRouter()
+
+
+@router.get("/audit/verify-chain")
+async def verify_chain(user: dict = Depends(require_permission("audit.view"))):
+    """Tamper-evidence: re-derive the audit hash chain and report the first break
+    (a deleted or edited entry). AU-9."""
+    return await verify_audit_chain(db)
 
 
 @router.get("/audit")

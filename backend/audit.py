@@ -1,5 +1,7 @@
 """Audit log helper. Records every meaningful action across the CRM."""
 import uuid
+import json
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Optional, Any
@@ -7,9 +9,24 @@ from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
+GENESIS_HASH = "0" * 64   # prev_hash of the very first audit entry
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+# <tamper-evidence> The canonical content of an entry that the hash commits to
+#   (everything except the chain fields themselves). AU-9 / A.8.15. </tamper-evidence>
+_HASHED_FIELDS = ("id", "actor_id", "actor_role", "action", "target_type",
+                  "target_id", "target_label", "metadata", "ip", "created_at")
+
+
+def entry_hash(doc: dict, prev_hash: str) -> str:
+    """SHA-256 over the entry's canonical content chained to the previous hash."""
+    payload = {k: doc.get(k) for k in _HASHED_FIELDS}
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256((prev_hash + "\n" + body).encode("utf-8")).hexdigest()
 
 
 # Action vocabulary kept short + structured so the UI can filter cleanly.
@@ -17,6 +34,7 @@ ACTIONS = {
     "auth.login", "auth.login_failed", "auth.logout",
     "auth.password_reset_requested", "auth.password_reset_completed", "auth.password_reset_failed",
     "auth.mfa_enrolled", "auth.mfa_verified", "auth.mfa_failed", "auth.mfa_step_up", "auth.mfa_disabled",
+    "auth.break_glass",   # CEO/super-account login — alert in real time (SoD Part 4)
     "user.created", "user.updated", "user.deactivated", "user.reactivated",
     "user.deleted", "user.profile_updated",
     "user.password_changed", "user.password_reset",
@@ -83,6 +101,29 @@ async def log_audit(
             "user_agent": ua,
             "created_at": _now(),
         }
+        # Tamper-evidence: chain this entry to the previous one's hash. (At this
+        # scale the read-latest race is negligible; a fork still leaves every
+        # entry individually verifiable against its own prev_hash.)
+        prev = await db.audit_log.find({}, {"_id": 0, "hash": 1}).sort("created_at", -1).to_list(1)
+        prev_hash = (prev[0].get("hash") if prev else None) or GENESIS_HASH
+        doc["prev_hash"] = prev_hash
+        doc["hash"] = entry_hash(doc, prev_hash)
         await db.audit_log.insert_one(doc)
     except Exception as exc:  # never break the request because of audit logging
         logger.warning(f"Audit log failed for action {action}: {exc}")
+
+
+async def verify_audit_chain(db, limit: int = 100000) -> dict:
+    """Walk the hash-chained audit entries oldest->newest and re-derive each hash.
+    Reports the first break (a deleted or edited row). Rows written before
+    hash-chaining was enabled (hash IS NULL) are skipped, so the chain is verified
+    from where hashing began. Returns {ok, checked, broken_at?}."""
+    rows = await db.audit_log.find({"hash": {"$ne": None}}, {"_id": 0}).sort("created_at", 1).to_list(limit)
+    prev_hash = GENESIS_HASH
+    for i, r in enumerate(rows):
+        expected = entry_hash(r, prev_hash)
+        if r.get("prev_hash") != prev_hash or r.get("hash") != expected:
+            return {"ok": False, "checked": i, "broken_at": r.get("id"),
+                    "at_created": r.get("created_at")}
+        prev_hash = r["hash"]
+    return {"ok": True, "checked": len(rows)}

@@ -87,6 +87,14 @@ _ACCOUNTS_KEYS = {  # Finance / Accounts — the money authority: record + confi
     "payments.record", "payments.confirm", "payments.refund", "expenses.approve",
     "analytics.company", "documents.upload", "chat.access",
 }
+# <system-admin> Pure IT administration (SoD-2): manage users/roles/automations/
+#   notifications, view audit + analytics — but NO business approvals, NO money,
+#   NO lead/estimate editing. The intended daily-driver for admins so no single
+#   login holds both system administration AND business super-powers. </system-admin>
+_SYSADMIN_KEYS = {
+    "users.manage", "roles.manage", "automations.manage",
+    "notifications.manage", "audit.view", "analytics.company", "scoring.manage",
+}
 _DESIGNER_KEYS = {"revisions.manage", "documents.upload", "chat.access"}
 _SUPERVISOR_KEYS = {  # Site Manager
     "measurements.manage", "documents.upload", "installation.manage",
@@ -104,6 +112,8 @@ ROLE_DEFAULTS: dict[str, set] = {
     "manager": set(_MANAGER_KEYS),
     "sales": set(_SALES_KEYS),
     "accounts": set(_ACCOUNTS_KEYS),
+    "system_admin": set(_SYSADMIN_KEYS),
+
     # Production Engineer ⊇ Designer + factory / cut-list / QR / production.
     "production_engineer": _DESIGNER_KEYS | {"production.manage", "tickets.manage"},
     "designer": set(_DESIGNER_KEYS),
@@ -119,6 +129,7 @@ ROLE_META = {
     "manager": ("Project Manager", "#8A9A5B"),
     "sales": ("Sales Executive", "#8A5A3B"),
     "accounts": ("Finance / Accounts", "#4E6E58"),
+    "system_admin": ("System Admin", "#4A6274"),
     "production_engineer": ("Production Engineer", "#3B6E8F"),
     "designer": ("Designer", "#9C6644"),
     "supervisor": ("Site Manager", "#6B705C"),
