@@ -186,7 +186,7 @@ concrete recommendation for this system.
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
 | L1 | Pin & vet dependencies (pub, pip) | **M2**; A.8.30 | 🟡 versioned pubspec/requirements | Commit lockfiles; pin ranges; review new deps. |
-| L2 | SCA / vulnerability scanning of deps | SR‑3; CIS 7/16 | ❌ | Dependabot/`pip‑audit`/`osv‑scanner`/`flutter pub outdated`; fail CI on criticals. |
+| L2 | SCA / vulnerability scanning of deps | SR‑3; CIS 7/16 | 🟡 **pip‑audit** in CI (`security-ci.yml`), fails on new CVEs; surfaced 8 starlette CVEs (tracked exception → needs fastapi upgrade). See `SECURITY_CI.md` (P1‑14) | Add Flutter/Dart dep scan (`osv‑scanner`/`dart pub outdated`); upgrade fastapi/starlette to clear the exception. |
 | L3 | Verify plugin/SDK provenance (FCM, scanner, Razorpay) | M2; SR‑4 | 🟡 | Use official SDKs only; verify signatures/checksums; SBOM. |
 | L4 | Build pipeline integrity | SA‑10; SLSA | ❌ | Signed, reproducible CI builds; protected branches; no third‑party build steps handling secrets. |
 
@@ -229,7 +229,7 @@ concrete recommendation for this system.
 
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
-| P1 | SAST / secret scanning in CI | SA‑11; CIS 16 | ❌ | Add SAST (Bandit for Py, Dart analyzer + rules), gitleaks; block on high severity. |
+| P1 | SAST / secret scanning in CI | SA‑11; CIS 16 | ✅ **bandit** SAST (medium+) + **gitleaks** secret scan + **pip‑audit** SCA in CI, blocking on new findings (`security-ci.yml`, `secret-scan.yml`; P0‑5/P1‑14) | Add Dart analyzer rules + Semgrep for deeper coverage. |
 | P2 | DAST / API fuzzing | SA‑11 | ❌ | Run ZAP/API fuzzing against staging; test authZ (BOLA/BFLA) automatically. |
 | P3 | Periodic pentest + MASTG mobile test | 800‑163; A.8.29 | ❌ | Independent pentest of both apps + API before GA; retest after major changes. |
 | P4 | Threat modeling | SA‑15; A.8.25 | 🟡 dual‑BFF designed for it | Document a STRIDE threat model per app + the payment/OTP flows. |
@@ -298,7 +298,7 @@ concrete recommendation for this system.
 11. 🟡 **DPDP compliance** (M1‑M7) — consent ledger + data‑subject export/erasure implemented & verified (20/20); breach runbook (`INCIDENT_RESPONSE.md`) + retention/classification + processor register (`DATA_RETENTION.md`) written. Remaining: publish privacy policy, onboarding consent UI, sign processor DPAs, run a breach drill.
 12. **Screenshot/backup/clipboard** hardening; obfuscation; root/tamper checks (C2‑C4/G/H).
 13. ✅ **Razorpay signed‑webhook** live path + dual‑control on refunds/large payments (N2/N5/D6) — HMAC‑verified, idempotent, amount‑matched webhook; refund needs a dedicated finance permission + four‑eyes + step‑up (verified 15/15). Remaining: gateway order‑creation (needs Razorpay SDK + credentials) + IP allow‑list.
-14. **Dependency scanning + SAST/secret scan in CI**; pentest before launch (L2/P1‑P3).
+14. 🟡 **Dependency scanning + SAST/secret scan in CI** (L2/P1) — bandit + pip‑audit + gitleaks wired and blocking (`security-ci.yml`). Remaining: Flutter dep scan, upgrade fastapi/starlette to clear the tracked CVE exception, pentest before launch.
 
 **P2 — mature the program:**
 15. Monitoring/alerting + SIEM, anomaly detection (J4).

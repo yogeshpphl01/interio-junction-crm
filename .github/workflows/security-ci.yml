@@ -1,0 +1,63 @@
+name: security-ci
+
+# Static application security testing (SAST) + dependency vulnerability scanning
+# for the backend (P1-14). Secret scanning runs separately in secret-scan.yml
+# (gitleaks). Together these give CI-time coverage of CWE Top 25 code smells,
+# known-vulnerable dependencies, and leaked credentials.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sast:
+    name: SAST (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install bandit
+      # Medium severity + medium confidence: high-signal only (command injection,
+      # weak crypto, insecure deserialization, ...). The Low/Low heuristics (SQL
+      # built in the schema-driven asyncpg shim — identifiers quoted, values
+      # parameterized; "password" field-name literals; best-effort try/except) are
+      # intentionally below this bar and are covered elsewhere (gitleaks for real
+      # secrets). A NEW medium+ finding fails the build.
+      - name: bandit
+        working-directory: backend
+        run: bandit -r . -x ./.venv,./tests --severity-level medium --confidence-level medium
+
+  dependencies:
+    name: Dependency scan (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pip-audit
+      # Fails on any known-vulnerable dependency EXCEPT the tracked exceptions
+      # below. A new CVE (or a new vulnerable package) fails the build.
+      #
+      # TRACKED EXCEPTION — starlette 0.37.2 (pinned transitively by
+      # fastapi==0.110.1). Fixed in starlette >= 0.40 / 0.47, which needs a
+      # fastapi major bump (broad blast radius — schedule + re-verify the app).
+      # Remove these ignores once fastapi/starlette are upgraded.
+      - name: pip-audit
+        working-directory: backend
+        run: |
+          pip-audit -r requirements-runtime.txt \
+            --ignore-vuln PYSEC-2026-161 \
+            --ignore-vuln PYSEC-2026-248 \
+            --ignore-vuln PYSEC-2026-249 \
+            --ignore-vuln PYSEC-2026-1941 \
+            --ignore-vuln PYSEC-2026-1943 \
+            --ignore-vuln PYSEC-2026-2280 \
+            --ignore-vuln PYSEC-2026-2281
