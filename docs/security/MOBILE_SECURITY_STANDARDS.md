@@ -97,7 +97,7 @@ concrete recommendation for this system.
 | D3 | Reject invalid/expired certs (no bypass) | CWE‑295/297 | 🟡 default Dio validates | Never disable cert validation; the proxy‑bypass note in ops must not ship to prod. |
 | D4 | HSTS + secure response headers | ASVS V14.4; A.8.20 | ✅ security‑headers middleware: HSTS (prod), `X‑Content‑Type‑Options`, `X‑Frame‑Options`, `Referrer‑Policy`, `Cache‑Control:no‑store` on `/api` | Add CSP if any web UI is served. |
 | D5 | CORS locked down | ASVS V14.5; API8 | 🟡 `CORS_ORIGINS` configurable, defaults `*` (creds off) | Pin exact origins for any web; mobile uses no CORS — keep `*` off in prod. |
-| D6 | Mutual TLS / signed webhooks for gateways | API10; SC‑8 | 🟡 Razorpay webhook signature in reference code | Verify Razorpay signature on the live path; allow‑list gateway IPs; validate Infurnia payloads. |
+| D6 | Mutual TLS / signed webhooks for gateways | API10; SC‑8 | ✅ **live Razorpay webhook** (`routers/webhooks.py`): HMAC‑SHA256 signature (constant‑time), idempotency ledger, amount/currency match, inert until configured (P1‑13, verified) | Allow‑list gateway IPs at the edge; validate Infurnia payloads similarly. |
 
 ## E. Cryptography & Key Management
 *(OWASP MASVS‑CRYPTO, Mobile M10; ASVS V6; NIST SP 800‑57, 800‑53 SC‑12/13/17; ISO A.8.24; CWE‑327/330/338)*
@@ -209,10 +209,10 @@ concrete recommendation for this system.
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
 | N1 | Server computes & verifies amounts | API6 | ✅ 10% booking & totals server‑side | Keep. |
-| N2 | Gateway signature verification on callbacks | API10 | 🟡 Razorpay HMAC verify in reference | Enforce on live path; reject unsigned/replayed webhooks; idempotent settlement. |
-| N3 | Weak manual‑UPI proof (screenshot) is fraud‑prone | API6; CWE‑840 | 🟡 manual verify by staff | Prefer gateway/UPI‑intent with server confirmation; treat screenshots as provisional, dual‑control on large amounts. |
+| N2 | Gateway signature verification on callbacks | API10 | ✅ **enforced on the live path** — HMAC‑SHA256 verify, unsigned/bad rejected (400), replayed events idempotent (`gateway_events` ledger), amount‑mismatch rejected (P1‑13, verified) | — |
+| N3 | Weak manual‑UPI proof (screenshot) is fraud‑prone | API6; CWE‑840 | 🟡 manual verify is four‑eyes + step‑up (P1‑9); gateway path is now signature‑verified (P1‑13) | Prefer gateway/UPI‑intent; treat screenshots as provisional. |
 | N4 | Never store card/PSP secrets in app or DB | PCI; CWE‑312 | ✅ no card data stored | Keep tokenized refs only; PSP holds sensitive data. |
-| N5 | Segregate payment approval from initiation | SoD; API6 | 🟡 | Four‑eyes for verifying/refunding above a threshold (see Part 2). |
+| N5 | Segregate payment approval from initiation | SoD; API6 | ✅ record≠confirm (P1‑9); **refunds** need a dedicated `payments.refund` (finance/CEO only, never Sales/Admin) + four‑eyes (refunder≠confirmer) + step‑up; large‑payment confirm forces step‑up ≥ `PAYMENT_STEP_UP_THRESHOLD` (P1‑13, verified) | — |
 
 ## O. Resilience, Backup & Incident Response
 *(NIST CP‑9/CP‑10, IR‑4/IR‑8; ISO A.5.24‑A.5.30/A.8.13/A.8.14; CSF RS/RC; CIS 11)*
@@ -297,7 +297,7 @@ concrete recommendation for this system.
 10. ✅ **Signed URLs** for documents + upload validation (C7/F4) — 5‑min capability tokens (staff + customer), no `storage_path` leak, `nosniff`/attachment downloads, magic‑byte upload allow‑list with safe content‑type (verified 20/20). Remaining: private bucket + AV scan when live.
 11. 🟡 **DPDP compliance** (M1‑M7) — consent ledger + data‑subject export/erasure implemented & verified (20/20); breach runbook (`INCIDENT_RESPONSE.md`) + retention/classification + processor register (`DATA_RETENTION.md`) written. Remaining: publish privacy policy, onboarding consent UI, sign processor DPAs, run a breach drill.
 12. **Screenshot/backup/clipboard** hardening; obfuscation; root/tamper checks (C2‑C4/G/H).
-13. **Razorpay signed‑webhook** live path; dual‑control on large/refund payments (N2/N5).
+13. ✅ **Razorpay signed‑webhook** live path + dual‑control on refunds/large payments (N2/N5/D6) — HMAC‑verified, idempotent, amount‑matched webhook; refund needs a dedicated finance permission + four‑eyes + step‑up (verified 15/15). Remaining: gateway order‑creation (needs Razorpay SDK + credentials) + IP allow‑list.
 14. **Dependency scanning + SAST/secret scan in CI**; pentest before launch (L2/P1‑P3).
 
 **P2 — mature the program:**
@@ -370,7 +370,7 @@ Concrete role adjustments:
 | **Separate admin identity from daily use** | Admins do normal work with a normal role; switch to a distinct privileged account only for admin tasks | **AC‑6(5)**; CIS 5.4 |
 | **Break‑glass CEO/super‑admin** | Sealed credential, hardware‑MFA, used only in emergencies, **auto‑alert on every login/action**, short forced session, reviewed after use | AC‑6(2); A.8.2 |
 | **Just‑in‑Time elevation** | Request → second‑person approval → **time‑boxed** grant that auto‑expires; no standing super‑admin | AC‑6(1); CIS 6.8 |
-| **Four‑eyes on the most sensitive ops** | ✅ approver ≠ creator on estimate/expense/payment/booking; `users.delete` + role‑change require step‑up (P1‑9). Bulk export / refunds still to add | AC‑5; A.5.3 |
+| **Four‑eyes on the most sensitive ops** | ✅ approver ≠ creator on estimate/expense/payment/booking/**refund**; `users.delete` + role‑change + refund require step‑up (P1‑9/P1‑13). Bulk export still to add | AC‑5; A.5.3 |
 | **Step‑up MFA for admin actions** | ✅ `assert_step_up`/`require_step_up` wired onto payment‑confirm, approvals, booking verify, role‑change, hard‑delete; `STEP_UP_ENABLED` flips it on post‑MFA‑rollout (P1‑9) | IA‑2(1); AC‑6 |
 | **Privileged‑action auditing + alerting** | Every privileged/role/permission change is logged to the immutable audit and alerts security | AU‑2/AU‑12; A.8.15 |
 | **Immediate deprovision (leaver)** | ✅ deactivation revokes all tokens at once via `token_version` (A7/B8); keys rotated | AC‑2(3); A.5.18 |

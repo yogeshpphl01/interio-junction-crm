@@ -19,6 +19,9 @@ from a secrets manager.
 | `APP_CHECK_ENABLED` | enforce Firebase App Check attestation on OTP/login — P1‑8 | `1` once every app build sends a valid token (fail‑closed) |
 | `APP_CHECK_PROJECT_NUMBER` | Firebase project number; pins App Check aud/iss | set when `APP_CHECK_ENABLED=1` |
 | `APP_CHECK_JWKS_URL` / `APP_CHECK_JWKS_JSON` | App Check public keys (default Google URL; JSON pins them inline) | optional |
+| `RAZORPAY_WEBHOOK_SECRET` | HMAC secret to verify Razorpay webhooks — P1‑13 | set when the gateway is live (endpoint is inert/503 without it) |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | gateway order creation (when enabled) | Secret Manager only |
+| `PAYMENT_STEP_UP_THRESHOLD` | ₹ amount at/above which confirm+refund force a step‑up — P1‑13 | set once MFA is rolled out (0/unset = off) |
 | `GOOGLE_APPLICATION_CREDENTIALS` / `FCM_*` | push service account | store as a mounted secret, not in the image |
 
 `validate_security_config()` runs at startup and **fails fast** in production if

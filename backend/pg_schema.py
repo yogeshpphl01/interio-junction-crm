@@ -304,6 +304,12 @@ SCHEMA: dict[str, dict] = {
             "verified_at": "TEXT",
             "created_by": "TEXT",              # who RECORDED the milestone (four-eyes: != confirmer)
             "confirmed_by": "TEXT",            # who CONFIRMED it Paid (SoD, must differ from created_by)
+            "gateway": "TEXT",                 # "razorpay" when paid via the gateway
+            "gateway_order_id": "TEXT",        # Razorpay order id (set at order creation)
+            "gateway_payment_id": "TEXT",      # Razorpay payment id (from the webhook)
+            "refunded_at": "TEXT",             # SoD refund path (P1-13)
+            "refund_amount": "DOUBLE PRECISION",
+            "refunded_by": "TEXT",
             "due_date": "TEXT",
             "paid_date": "TEXT",
             "status": "TEXT",
@@ -313,6 +319,24 @@ SCHEMA: dict[str, dict] = {
         "indexes": [
             {"cols": [("project_id", 1)], "unique": False},
             {"cols": [("lead_id", 1)], "unique": False},
+            {"cols": [("gateway_order_id", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="gateway_events"><purpose>Idempotency ledger for payment-gateway
+    #   webhooks (P1-13). The gateway event id is the PK, so a replayed webhook is a
+    #   no-op and a payment can never activate a project twice.</purpose></table>
+    "gateway_events": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",            # the gateway's event id (idempotency key)
+            "event_type": "TEXT",    # payment.captured | refund.processed | ...
+            "payment_id": "TEXT",    # our payments.id it resolved to
+            "processed_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("payment_id", 1)], "unique": False},
         ],
     },
 

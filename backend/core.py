@@ -337,11 +337,13 @@ def step_up_enabled() -> bool:
     return str(os.environ.get("STEP_UP_ENABLED", "")).lower() in ("1", "true", "yes", "on")
 
 
-async def assert_step_up(request: Request, user: dict) -> None:
+async def assert_step_up(request: Request, user: dict, force: bool = False) -> None:
     """Raise 403 unless a fresh step-up token is present (no-op when disabled).
     Callable inline for actions that only need step-up on a specific transition
-    (e.g. marking a payment Paid) rather than on every call to the endpoint."""
-    if not step_up_enabled():
+    (e.g. marking a payment Paid) rather than on every call to the endpoint.
+    `force=True` enforces regardless of STEP_UP_ENABLED — used for high-value
+    money moves (large-payment confirm, refunds) once a threshold is configured."""
+    if not force and not step_up_enabled():
         return
     tok = request.headers.get("X-Step-Up-Token")
     if not tok:

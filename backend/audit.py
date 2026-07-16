@@ -27,6 +27,8 @@ ACTIONS = {
     "measurement.created", "measurement.updated", "measurement.completed",
     "revision.created", "revision.updated", "revision.status_changed",
     "payment.created", "payment.updated", "payment.paid", "payment.received",
+    "payment.webhook_verified", "payment.webhook_rejected", "payment.amount_mismatch",
+    "payment.refunded",
     "fixture.created", "fixture.deleted",
     "estimate.created", "estimate.submitted", "estimate.approved",
     "estimate.rejected", "estimate.shared", "estimate.accepted",

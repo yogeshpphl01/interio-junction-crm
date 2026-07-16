@@ -37,6 +37,7 @@ PERMISSION_CATALOG = [
     #   role is granted it anymore. </sod-payments>
     ("payments.record",     "Record / enter payments",              "Projects"),
     ("payments.confirm",    "Confirm & verify payments (finance)",   "Projects"),
+    ("payments.refund",     "Issue payment refunds (finance)",       "Projects"),
     ("payments.manage",     "Manage payments (legacy: record+confirm)", "Projects"),
     ("documents.upload",    "Upload documents",                     "Projects"),
     ("analytics.company",   "Company-wide analytics",               "Insights"),
@@ -82,8 +83,8 @@ _SALES_KEYS = {  # Sales Executive — creates the deal + RECORDS money, but can
     "leads.edit", "leads.import", "measurements.manage", "revisions.manage",
     "payments.record", "documents.upload", "estimates.create", "chat.access",
 }
-_ACCOUNTS_KEYS = {  # Finance / Accounts — the money authority: record + confirm + approve expenses
-    "payments.record", "payments.confirm", "expenses.approve",
+_ACCOUNTS_KEYS = {  # Finance / Accounts — the money authority: record + confirm + refund + approve expenses
+    "payments.record", "payments.confirm", "payments.refund", "expenses.approve",
     "analytics.company", "documents.upload", "chat.access",
 }
 _DESIGNER_KEYS = {"revisions.manage", "documents.upload", "chat.access"}
@@ -97,7 +98,7 @@ ROLE_DEFAULTS: dict[str, set] = {
     #   separated from financial CONFIRMATION and the legacy money umbrella
     #   (NIST AC-5 duty separation). Admin can still record a payment operationally
     #   but a second party (Accounts / Manager / CEO) must confirm it. </split-admin>
-    "admin": _ALL - {"users.delete", "payments.confirm", "payments.manage"},
+    "admin": _ALL - {"users.delete", "payments.confirm", "payments.refund", "payments.manage"},
     # Marketing Head ⊇ Project Manager + campaign upload/distribute + silent oversight.
     "marketing_head": _MANAGER_KEYS | {"leads.upload_excel", "leads.distribute", "oversight.silent"},
     "manager": set(_MANAGER_KEYS),

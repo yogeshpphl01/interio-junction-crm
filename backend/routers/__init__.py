@@ -29,6 +29,7 @@ from .worklist import router as worklist_router      # NEW: mobile P0 — Compan
 from .projects import router as projects_router      # NEW: mobile P0 — Company App project list + detail
 from .mfa import router as mfa_router                 # NEW: security — staff MFA (TOTP)
 from .privacy import router as privacy_router         # NEW: security — DPDP erasure/consent (staff side)
+from .webhooks import router as webhooks_router       # NEW: security — Razorpay signed webhook (P1-13)
 
 ALL_ROUTERS = [
     meta_router, auth_router, mfa_router, users_router, leads_router,
@@ -38,4 +39,5 @@ ALL_ROUTERS = [
     imports_router, roles_router, fixtures_router, estimates_router, production_router,
     tickets_router, checklists_router, expenses_router, campaigns_router, booking_router,
     client_router, devices_router, worklist_router, projects_router, privacy_router,
+    webhooks_router,
 ]
