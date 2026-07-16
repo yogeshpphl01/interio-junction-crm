@@ -250,7 +250,7 @@ write("2_customer_app_progress", {
     "notes": [(
         "REMAINING (config / not built):  real OTP delivery (SMS/WhatsApp or Firebase phone-auth) · FCM key for live push ·\n"
         "Razorpay online checkout — backend webhook is built, staff-verified UPI works now · object-storage go-live ·\n"
-        "App Check / cert-pins — backend ready, add Firebase config + pins · Chat (Firestore) not built · Flutter run on a device.", 50, 1022, YELLOW)],
+        "App Check / cert-pins — backend ready, add Firebase config + pins · Chat — backend built, realtime Firestore + UI remaining · Flutter run on a device.", 50, 1022, YELLOW)],
 })
 
 # 3. Company complete
@@ -269,6 +269,6 @@ write("4_employee_app_progress", {
     "notes": [(
         "REMAINING (config / not built):  camera QR scan — drop-in ready, needs a device; manual entry works · Infurnia real QR ingest (paste works) ·\n"
         "pricing Excel for the estimate engine · FCM key for live push · mobile FLAG_SECURE / manifest / obfuscation config ·\n"
-        "Chat (not built) · Flutter compile / run on a device.", 50, 1022, YELLOW)],
+        "Chat — backend built, realtime Firestore + UI remaining · Flutter compile / run on a device.", 50, 1022, YELLOW)],
 })
 print("done")
