@@ -363,6 +363,27 @@ async def require_step_up(request: Request, user: dict = Depends(get_current_use
     return user
 
 
+def client_step_up_enabled() -> bool:
+    return str(os.environ.get("CLIENT_STEP_UP_ENABLED", "")).lower() in ("1", "true", "yes", "on")
+
+
+async def assert_client_step_up(request: Request, customer: dict) -> None:
+    """Require a fresh customer step-up (X-Client-Step-Up, from /client/auth/step-up
+    after an on-device biometric/PIN) for a high-risk customer action. No-op unless
+    CLIENT_STEP_UP_ENABLED, so it activates once the app ships the biometric flow."""
+    if not client_step_up_enabled():
+        return
+    tok = request.headers.get("X-Client-Step-Up")
+    if not tok:
+        raise HTTPException(status_code=403, detail="Please confirm with biometrics to continue.")
+    try:
+        payload = decode_token(tok)
+    except HTTPException:
+        raise HTTPException(status_code=403, detail="Invalid or expired confirmation.")
+    if payload.get("type") != "customer_step_up" or payload.get("sub") != customer["id"]:
+        raise HTTPException(status_code=403, detail="Invalid confirmation token.")
+
+
 def deny_self_action(creator_id, user: dict, what: str = "item") -> None:
     """Four-eyes / segregation-of-duties: the person who created/submitted a record
     may not be the one who approves, confirms or verifies it — even CEO/Admin

@@ -9,6 +9,7 @@ environment:
 dependencies:
   dio: ^5.4.0
   crypto: ^3.0.3            # SHA-256 for TLS certificate pinning (api_client.dart)
+  local_auth: ^2.2.0        # on-device biometric/PIN step-up for high-risk actions
   flutter_secure_storage: ^9.0.0
   flutter:
     sdk: flutter

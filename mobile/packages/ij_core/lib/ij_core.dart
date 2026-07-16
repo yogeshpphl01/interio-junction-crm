@@ -10,3 +10,5 @@ export 'src/auth/auth_repository.dart';
 export 'src/data_repository.dart';
 export 'src/models/models.dart';
 export 'src/security/secure_screen.dart';
+export 'src/security/biometric.dart';
+export 'src/security/tap_guard.dart';

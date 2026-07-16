@@ -38,12 +38,16 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
-from core import db, get_current_customer, now_iso, STAGES, run_workflow_notify_designer, revoke_tokens
+from core import (
+    db, get_current_customer, now_iso, STAGES, run_workflow_notify_designer,
+    revoke_tokens, assert_client_step_up,
+)
 from app_check import require_app_check
 from auth_utils import (
     hash_password, verify_password, decode_token, otp_debug_logging,
     create_customer_access_token, create_customer_refresh_token,
     create_doc_download_token, DOC_URL_TTL_MIN,
+    create_customer_step_up_token, STEP_UP_TTL_MIN,
 )
 from file_validation import safe_filename
 from audit import log_audit
@@ -307,6 +311,16 @@ async def client_logout(request: Request, customer: dict = Depends(get_current_c
     return {"ok": True}
 
 
+@router.post("/client/auth/step-up")
+async def client_step_up(request: Request, customer: dict = Depends(get_current_customer)):
+    """Issue a short-lived elevation after the app has re-verified the customer
+    on-device (biometric/PIN via local_auth). Send the returned token as the
+    X-Client-Step-Up header on a high-risk action (accept estimate / approve
+    design). Gated actions require it only when CLIENT_STEP_UP_ENABLED."""
+    await log_audit(db, None, "client.step_up", "customer", customer["id"], customer.get("full_name"), None, request)
+    return {"step_up_token": create_customer_step_up_token(customer["id"]), "expires_in": STEP_UP_TTL_MIN * 60}
+
+
 @router.get("/client/me")
 async def client_me(customer: dict = Depends(get_current_customer)):
     return {"customer": customer}
@@ -389,6 +403,7 @@ async def client_accept_estimate(estimate_id: str, request: Request,
     is what unlocks the 10% booking payment. Strictly scoped: the estimate's lead
     must belong to this customer, and a 404 (not 403) hides anything that doesn't.
     """
+    await assert_client_step_up(request, customer)   # biometric confirm (high-risk)
     est = await db.estimates.find_one({"id": estimate_id}, {"_id": 0})
     if not est:
         raise HTTPException(status_code=404, detail="Estimate not found")
@@ -452,6 +467,7 @@ async def client_designs(customer: dict = Depends(get_current_customer)):
 async def client_approve_design(rev_id: str, request: Request,
                                 customer: dict = Depends(get_current_customer)):
     """Customer approves a shared design revision (the Production-Design gate needs one)."""
+    await assert_client_step_up(request, customer)   # biometric confirm (high-risk)
     rev = await _own_revision_or_404(rev_id, customer)
     if rev["status"] == "Approved":
         return {"ok": True, "revision_id": rev_id, "status": "Approved"}  # idempotent

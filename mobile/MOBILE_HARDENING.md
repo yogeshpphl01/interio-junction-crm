@@ -100,6 +100,32 @@ flutter build ipa       --obfuscate --split-debug-info=build/symbols
 - Do not put trust decisions solely on the client — the server already enforces
   authZ, four-eyes, and step-up.
 
+## Tapjacking / overlay protection (G6)
+
+- Android: set `android:filterTouchesWhenObscured="true"` on the sensitive view /
+  theme so taps are dropped when another window overlays the app; pair with
+  FLAG_SECURE (`SecureScreen`) which blocks overlays on secure windows.
+- Flutter: wrap high-risk confirm buttons (accept / approve / pay) in
+  `TapGuard` (ij_core) so they're consistently identified for the native flag.
+
+## Customer biometric step-up (A9)
+
+High-risk **customer** actions (accept estimate, approve design) can require a
+fresh on-device biometric/PIN:
+
+1. Backend: set `CLIENT_STEP_UP_ENABLED=1` (accept/approve then require the
+   `X-Client-Step-Up` header).
+2. App: `ij_core.Biometric.confirm()` prompts `local_auth`, calls
+   `POST /client/auth/step-up`, and returns a short-lived token. Send it on the
+   action, e.g.:
+
+   ```dart
+   await stepUp(bio, (h) => api.post('/client/estimates/$id/accept', headers: h));
+   ```
+
+   Add the platform bits `local_auth` needs (Android `FragmentActivity` +
+   `USE_BIOMETRIC`; iOS `NSFaceIDUsageDescription`).
+
 ## Clipboard
 
 - For any "copy code / amount" affordance, clear the clipboard a few seconds

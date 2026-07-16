@@ -89,30 +89,30 @@ class ApiClient {
   /// per request so a refreshed token is always sent.
   final String? Function()? appCheckToken;
 
-  Future<dynamic> get(String path, {Map<String, dynamic>? query}) =>
-      _send('GET', path, query: query);
+  Future<dynamic> get(String path, {Map<String, dynamic>? query, Map<String, String>? headers}) =>
+      _send('GET', path, query: query, headers: headers);
 
-  Future<dynamic> post(String path, {Object? body}) =>
-      _send('POST', path, body: body);
+  Future<dynamic> post(String path, {Object? body, Map<String, String>? headers}) =>
+      _send('POST', path, body: body, headers: headers);
 
-  Future<dynamic> patch(String path, {Object? body}) =>
-      _send('PATCH', path, body: body);
+  Future<dynamic> patch(String path, {Object? body, Map<String, String>? headers}) =>
+      _send('PATCH', path, body: body, headers: headers);
 
-  Future<dynamic> delete(String path, {Object? body}) =>
-      _send('DELETE', path, body: body);
+  Future<dynamic> delete(String path, {Object? body, Map<String, String>? headers}) =>
+      _send('DELETE', path, body: body, headers: headers);
 
   Future<dynamic> _send(String method, String path,
-      {Object? body, Map<String, dynamic>? query, bool isRetry = false}) async {
+      {Object? body, Map<String, dynamic>? query, Map<String, String>? headers, bool isRetry = false}) async {
     final res = await _dio.request(
       path,
       data: body,
       queryParameters: query,
-      options: Options(method: method),
+      options: Options(method: method, headers: headers),
     );
     final code = res.statusCode ?? 0;
 
     if (code == 401 && !isRetry && await _tryRefresh()) {
-      return _send(method, path, body: body, query: query, isRetry: true);
+      return _send(method, path, body: body, query: query, headers: headers, isRetry: true);
     }
     if (code >= 200 && code < 300) return res.data;
 

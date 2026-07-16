@@ -116,6 +116,17 @@ def create_step_up_token(user_id: str) -> str:
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
+def create_customer_step_up_token(customer_id: str) -> str:
+    """Short-lived elevation for a Client-App customer after a fresh on-device
+    biometric/PIN check, for high-risk actions (accept estimate, approve design)."""
+    payload = {
+        "sub": customer_id,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=STEP_UP_TTL_MIN),
+        "type": "customer_step_up",
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+
 def create_refresh_token(user_id: str, tv: int = 0) -> str:
     payload = {
         "sub": user_id,
