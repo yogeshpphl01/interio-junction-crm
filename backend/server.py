@@ -7,6 +7,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 import os
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
@@ -22,14 +23,8 @@ from routers import ALL_ROUTERS
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Interio Junction CRM API")
-
-for r in ALL_ROUTERS:
-    app.include_router(r, prefix="/api")
-
-
-@app.on_event("startup")
-async def on_startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     # <startup>
     #   Open the pool, then either run migrations+seed (dev / RUN_MIGRATIONS=1) or,
     #   in production, skip DDL and just load the role cache read-only — so the
@@ -44,16 +39,18 @@ async def on_startup():
         await apply_migrations_and_seed()
     else:
         await refresh_role_cache(db)  # read-only: load custom-role permissions
-
     try:
         init_storage()
     except Exception as e:
         logger.error(f"Storage init error: {e}")
-
-
-@app.on_event("shutdown")
-async def shutdown():
+    yield
     await db.close()
+
+
+app = FastAPI(title="Interio Junction CRM API", lifespan=lifespan)
+
+for r in ALL_ROUTERS:
+    app.include_router(r, prefix="/api")
 
 
 origins_env = os.environ.get("CORS_ORIGINS", "*")

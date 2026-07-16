@@ -43,21 +43,9 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pip-audit
-      # Fails on any known-vulnerable dependency EXCEPT the tracked exceptions
-      # below. A new CVE (or a new vulnerable package) fails the build.
-      #
-      # TRACKED EXCEPTION — starlette 0.37.2 (pinned transitively by
-      # fastapi==0.110.1). Fixed in starlette >= 0.40 / 0.47, which needs a
-      # fastapi major bump (broad blast radius — schedule + re-verify the app).
-      # Remove these ignores once fastapi/starlette are upgraded.
+      # Fails on any known-vulnerable dependency. (The earlier starlette CVEs
+      # were cleared by upgrading to fastapi 0.139 / starlette 1.3.1, so there is
+      # no ignore list — a new CVE or a new vulnerable package fails the build.)
       - name: pip-audit
         working-directory: backend
-        run: |
-          pip-audit -r requirements-runtime.txt \
-            --ignore-vuln PYSEC-2026-161 \
-            --ignore-vuln PYSEC-2026-248 \
-            --ignore-vuln PYSEC-2026-249 \
-            --ignore-vuln PYSEC-2026-1941 \
-            --ignore-vuln PYSEC-2026-1943 \
-            --ignore-vuln PYSEC-2026-2280 \
-            --ignore-vuln PYSEC-2026-2281
+        run: pip-audit -r requirements-runtime.txt

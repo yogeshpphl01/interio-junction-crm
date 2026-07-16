@@ -23,16 +23,15 @@ high and excludes the codebase's known-safe low/low heuristics:
 A **new** medium+ finding fails the build. Run locally:
 `cd backend && bandit -r . -x ./.venv,./tests --severity-level medium --confidence-level medium`
 
-## Dependency scan — tracked exception
+## Dependency scan
 
-`pip-audit` fails on any known-vulnerable dependency **except** a documented,
-time-boxed ignore list. Currently ignored:
+`pip-audit` fails on any known-vulnerable dependency — **no ignore list**. A new
+CVE (or a new vulnerable package) fails the build.
 
-- **starlette 0.37.2** — `PYSEC-2026-161/248/249/1941/1943/2280/2281`. Pinned
-  transitively by `fastapi==0.110.1`; the fixes are in starlette ≥ 0.40/0.47,
-  which requires a **fastapi major upgrade** (app-wide blast radius — needs a
-  scheduled upgrade + full re-verification). **Remove these ignores once
-  fastapi/starlette are upgraded.**
+> The earlier 8 starlette CVEs (`PYSEC-2026-161/248/249/1941/1943/2280/2281`, on
+> starlette 0.37.2 pinned by fastapi 0.110.1) were **cleared** by upgrading to
+> **fastapi 0.139.2 / starlette 1.3.1** (startup migrated to a lifespan handler;
+> re-verified — 99/99 security checks green). pip-audit is now clean.
 
 Run locally: `cd backend && pip-audit -r requirements-runtime.txt`.
 

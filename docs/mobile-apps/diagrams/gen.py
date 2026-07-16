@@ -269,6 +269,6 @@ write("4_employee_app_progress", {
     "notes": [(
         "REMAINING (config / not built):  camera QR scan — drop-in ready, needs a device; manual entry works · Infurnia real QR ingest (paste works) ·\n"
         "pricing Excel for the estimate engine · FCM key for live push · mobile FLAG_SECURE / manifest / obfuscation config ·\n"
-        "fastapi/starlette upgrade to clear tracked CVEs · Chat (not built) · Flutter compile / run on a device.", 50, 1022, YELLOW)],
+        "Chat (not built) · Flutter compile / run on a device.", 50, 1022, YELLOW)],
 })
 print("done")
