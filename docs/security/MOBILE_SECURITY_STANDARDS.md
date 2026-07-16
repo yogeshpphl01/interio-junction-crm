@@ -64,8 +64,8 @@ concrete recommendation for this system.
 
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
-| B1 | Server‑side authorization on every endpoint | API5 BFLA; ASVS V4.1; AC‑3 | ✅ `require_permission` gates writes; reads scoped | Add automated tests that every route asserts a gate (deny‑by‑default). |
-| B2 | Object‑level authZ (no IDOR/BOLA) | **API1 BOLA**; CWE‑639 | ✅ customer data scoped by `customer_id`; 404 (not 403) hides others' objects | Extend the same ownership check to every new object type; add BOLA tests to CI. |
+| B1 | Server‑side authorization on every endpoint | API5 BFLA; ASVS V4.1; AC‑3 | ✅ `require_permission` gates writes; reads scoped; **BFLA tests in CI** (low‑priv staff → 403 on privileged fns) | Assert a gate on every new route (deny‑by‑default). |
+| B2 | Object‑level authZ (no IDOR/BOLA) | **API1 BOLA**; CWE‑639 | ✅ customer data scoped by `customer_id`; 404 (not 403) hides others' objects; **BOLA tests in CI** (cross‑customer access → 404) | Extend the ownership check to every new object type. |
 | B3 | Dual‑BFF identity separation | API2/API5; AC‑6 | ✅ `customer_access` vs `access` token types mutually rejected | Keep tokens in separate namespaces; never share a signing key purpose across audiences (add `aud` claim). |
 | B4 | Least privilege in roles | **AC‑6**; A.8.2; CIS 6.8 | ✅ money split (`payments.record`/`confirm`/`refund`); `accounts` + `system_admin` roles; `admin` stripped of money; four‑eyes on approvals; CEO break‑glass‑alerted (P1‑9 + follow‑up). `ceo`=ALL by design (emergency) | — |
 | B5 | Mass‑assignment / property‑level authZ | **API3 BOPLA**; CWE‑915 | 🟡 Pydantic models constrain input; some PATCH allow‑lists | Explicit allow‑lists on all write models; never bind whole request to ORM/doc. |
@@ -230,7 +230,7 @@ concrete recommendation for this system.
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
 | P1 | SAST / secret scanning in CI | SA‑11; CIS 16 | ✅ **bandit** + **semgrep** (offline rules + OWASP packs) SAST + **gitleaks** secrets + **pip‑audit**/**dart pub outdated** SCA + **CycloneDX SBOM** in CI, blocking on new findings (`security-ci.yml`, `secret-scan.yml`) | — |
-| P2 | DAST / API fuzzing | SA‑11 | ❌ | Run ZAP/API fuzzing against staging; test authZ (BOLA/BFLA) automatically. |
+| P2 | DAST / API fuzzing | SA‑11 | 🟡 **automated authZ suite** (`backend/tests/test_authz.py`, in CI with a Postgres service): BOLA (cross‑customer), BFLA (low‑priv staff on privileged fns), dual‑BFF rejection, unauth — 15 checks | Add ZAP/API fuzzing against a staging deploy. |
 | P3 | Periodic pentest + MASTG mobile test | 800‑163; A.8.29 | ❌ | Independent pentest of both apps + API before GA; retest after major changes. |
 | P4 | Threat modeling | SA‑15; A.8.25 | ✅ **`THREAT_MODEL.md`** — STRIDE across both apps + backend, assets, trust boundaries (dual‑BFF), each threat mapped to its control, residual‑risk register (P2) | Revisit on major changes. |
 | P5 | Security requirements & training | A.6.3/A.8.28 | ❌ | Secure‑coding guidelines; developer security training; this doc as the requirements baseline. |

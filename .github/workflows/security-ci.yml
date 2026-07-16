@@ -50,6 +50,35 @@ jobs:
         working-directory: backend
         run: pip-audit -r requirements-runtime.txt
 
+  authz:
+    name: AuthZ tests (BOLA/BFLA/dual-BFF)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ijtest
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: install
+        working-directory: backend
+        run: pip install -r requirements-runtime.txt httpx
+      - name: run authZ suite
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ijtest
+          JWT_SECRET: ci-authz-secret-32-chars-minimum-length-xx
+          RUN_MIGRATIONS: "1"
+          APP_ENV: dev
+        run: python tests/test_authz.py
+
   semgrep:
     name: SAST (semgrep)
     runs-on: ubuntu-latest
