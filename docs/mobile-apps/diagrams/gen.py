@@ -13,6 +13,7 @@ GRAY   = ("#F5F5F5", "#666666")
 GREEN  = ("#D5E8D4", "#82B366")   # done
 YELLOW = ("#FFF2CC", "#D6B656")   # needs creds / partial
 RED    = ("#F8CECC", "#B85450")   # not built
+SEC    = ("#D6DCF5", "#5B62B3")   # security & compliance layer (complete-view colour)
 BANDBG = ("#FBFBFB", "#DDDDDD")
 
 
@@ -91,10 +92,12 @@ def build(spec):
             val = esc(raw)  # XML-escape the HTML label for the attribute; draw.io un-escapes it
             cells.append(f'<mxCell id="{nid()}" value="{val}" style="rounded=1;whiteSpace=wrap;html=1;fillColor={color[0]};strokeColor={color[1]};fontSize=12;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="{nx}" y="{ny}" width="{nw}" height="{nh}" as="geometry"/></mxCell>')
 
-    # vertical arrows between consecutive bands
+    # vertical arrows between consecutive FLOW bands (a trailing cross-cutting
+    # band, e.g. Security, is excluded so it doesn't look "downstream").
     cx = W / 2
     labels = spec.get("edges", [])
-    for i in range(len(band_centers) - 1):
+    flow = spec.get("flow_bands", len(band_centers))
+    for i in range(flow - 1):
         y1 = band_centers[i][1]
         y2 = band_centers[i + 1][0]
         svg.append(f'<line x1="{cx}" y1="{y1}" x2="{cx}" y2="{y2}" stroke="#8A817C" stroke-width="2" marker-end="url(#arrow)"/>')
@@ -166,11 +169,20 @@ def client_bands(status=False):
         ("FCM push", c(YELLOW, GRAY) if status else GRAY),
         ("Payments\nUPI now / Razorpay", c(YELLOW, GRAY) if status else GRAY),
     ]
+    sec = [
+        ("Phone-OTP auth\ndual-BFF boundary", c(GREEN, SEC)),
+        ("Token revocation\ntoken_version", c(GREEN, SEC)),
+        ("App Check gate\nattestation (RS256)", c(GREEN, SEC)),
+        ("Rate-limit +\ndaily OTP cap", c(GREEN, SEC)),
+        ("Signed doc URLs\n+ upload validation", c(GREEN, SEC)),
+        ("DPDP\nconsent·export·erase", c(GREEN, SEC)),
+    ]
     return [
         ("CLIENT APP  (Flutter · Dart)", 110, 150, app),
         ("ij_core  —  shared Dart package", 300, 120, core),
         ("BACKEND  —  Client BFF  (FastAPI, /api/client/*)", 452, 165, be),
         ("DOMAIN · DATA · EXTERNAL", 649, 170, data),
+        ("SECURITY & COMPLIANCE  —  cross-cutting (P0–P1 built & verified)", 851, 150, sec),
     ]
 
 
@@ -199,54 +211,64 @@ def company_bands(status=False):
         ("Infurnia\nQR source (external)", c(YELLOW, GRAY) if status else GRAY),
         ("Object storage", c(YELLOW, GRAY) if status else GRAY),
         ("FCM push", c(YELLOW, GRAY) if status else GRAY),
-        ("RBAC\n28 perms · 8 roles", c(GREEN, GRAY)),
+        ("RBAC\n31 perms · 9 roles", c(GREEN, GRAY)),
+    ]
+    sec = [
+        ("Password + MFA\nTOTP · AAL2", c(GREEN, SEC)),
+        ("Revocation +\nrefresh rotation", c(GREEN, SEC)),
+        ("RBAC + SoD\nfour-eyes · step-up", c(GREEN, SEC)),
+        ("Signed URLs +\nupload validation", c(GREEN, SEC)),
+        ("Webhook HMAC +\nrefund dual-control", c(GREEN, SEC)),
+        ("Least-priv DB ·\nsecrets · CI scans", c(GREEN, SEC)),
     ]
     return [
         ("COMPANY APP  (Flutter · Dart)", 110, 150, app),
         ("ij_core  —  shared Dart package", 300, 120, core),
         ("BACKEND  —  Company surface  (FastAPI)", 452, 165, be),
         ("DOMAIN · DATA · EXTERNAL", 649, 170, data),
+        ("SECURITY & COMPLIANCE  —  cross-cutting (P0–P1 built & verified)", 851, 150, sec),
     ]
 
 
 EDGES = ["calls typed repo methods", "HTTPS · Bearer JWT (dual-BFF)", "async SQL · services"]
 LEGEND = [("Done & verified", GREEN), ("Needs creds / input", YELLOW), ("Not built", RED)]
+LAYERS = [("App", BLUE), ("ij_core", PURPLE), ("Backend", ORANGE), ("Data/Ext", GRAY), ("Security", SEC)]
 
 # 1. Client complete
 write("1_customer_app_complete", {
     "title": "1 · Customer App — Complete Architecture",
-    "subtitle": "Flutter Client App → ij_core → FastAPI Client BFF → PostgreSQL. Dual-BFF: customer_access JWT.",
-    "height": 940, "bands": client_bands(False), "edges": EDGES,
-    "notes": [("Security: dual-BFF boundary — a customer_access token is rejected by every employee endpoint.", 50, 852, None)],
+    "subtitle": "Flutter Client App → ij_core → FastAPI Client BFF → PostgreSQL. Dual-BFF: customer_access JWT. Security is cross-cutting.",
+    "height": 1090, "bands": client_bands(False), "edges": EDGES, "legend": LAYERS, "flow_bands": 4,
+    "notes": [("Dual-BFF: a customer_access token is rejected by every employee endpoint. The Security band wraps all layers (P0–P1, verified).", 50, 1024, None)],
 })
 
 # 2. Client done vs left
 write("2_customer_app_progress", {
     "title": "2 · Customer App — Done vs Remaining",
-    "subtitle": "Green = built & verified against Postgres.  Yellow = needs your credentials/input.  Red = not built.",
-    "height": 1010, "bands": client_bands(True), "edges": EDGES, "legend": LEGEND,
+    "subtitle": "Green = built & verified against Postgres.  Yellow = needs your credentials/input.  Red = not built.  (Security band: P0–P1 all done.)",
+    "height": 1130, "bands": client_bands(True), "edges": EDGES, "legend": LEGEND, "flow_bands": 4,
     "notes": [(
-        "REMAINING:  real OTP delivery (SMS/WhatsApp or Firebase phone-auth) · FCM key for live push ·\n"
-        "Razorpay online payment (staff-verified UPI works now) · object-storage signed URLs · Chat (Firestore, not built) ·\n"
-        "Flutter compile / run on a device (no Flutter SDK in this environment).", 50, 852, YELLOW)],
+        "REMAINING (config / not built):  real OTP delivery (SMS/WhatsApp or Firebase phone-auth) · FCM key for live push ·\n"
+        "Razorpay online checkout — backend webhook is built, staff-verified UPI works now · object-storage go-live ·\n"
+        "App Check / cert-pins — backend ready, add Firebase config + pins · Chat (Firestore) not built · Flutter run on a device.", 50, 1022, YELLOW)],
 })
 
 # 3. Company complete
 write("3_employee_app_complete", {
     "title": "3 · Employee App — Complete Architecture",
-    "subtitle": "Flutter Company App → ij_core → FastAPI (RBAC) → PostgreSQL + Infurnia. Dual-BFF: access JWT + permission gates.",
-    "height": 940, "bands": company_bands(False), "edges": EDGES,
-    "notes": [("Security: dual-BFF (access JWT) + RBAC permission gates on every write (28 permissions · 8 roles).", 50, 852, None)],
+    "subtitle": "Flutter Company App → ij_core → FastAPI (RBAC) → PostgreSQL + Infurnia. Dual-BFF: access JWT + permission gates. Security cross-cutting.",
+    "height": 1090, "bands": company_bands(False), "edges": EDGES, "legend": LAYERS, "flow_bands": 4,
+    "notes": [("Dual-BFF (access JWT) + RBAC on every write (31 perms · 9 roles incl. Finance). Security band wraps all layers (P0–P1, verified).", 50, 1024, None)],
 })
 
 # 4. Company done vs left
 write("4_employee_app_progress", {
     "title": "4 · Employee App — Done vs Remaining",
-    "subtitle": "Green = built & verified against Postgres.  Yellow = needs your credentials/input.  Red = not built.",
-    "height": 1010, "bands": company_bands(True), "edges": EDGES, "legend": LEGEND,
+    "subtitle": "Green = built & verified against Postgres.  Yellow = needs your credentials/input.  Red = not built.  (Security band: P0–P1 all done.)",
+    "height": 1130, "bands": company_bands(True), "edges": EDGES, "legend": LEGEND, "flow_bands": 4,
     "notes": [(
-        "REMAINING:  camera QR scanning (drop-in ready, needs a Flutter machine — manual entry works) ·\n"
-        "Infurnia real QR-label sample / file-parse ingest (paste ingest works now) · pricing Excel for the estimate engine ·\n"
-        "FCM key for live push · Chat (not built) · Flutter compile / run on a device.", 50, 852, YELLOW)],
+        "REMAINING (config / not built):  camera QR scan — drop-in ready, needs a device; manual entry works · Infurnia real QR ingest (paste works) ·\n"
+        "pricing Excel for the estimate engine · FCM key for live push · mobile FLAG_SECURE / manifest / obfuscation config ·\n"
+        "fastapi/starlette upgrade to clear tracked CVEs · Chat (not built) · Flutter compile / run on a device.", 50, 1022, YELLOW)],
 })
 print("done")
