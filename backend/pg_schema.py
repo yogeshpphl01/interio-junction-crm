@@ -340,6 +340,44 @@ SCHEMA: dict[str, dict] = {
         ],
     },
 
+    # <chat> Project chat (customer <-> staff). A thread starts as a DM and can
+    #   convert to a project GROUP once the project activates. Realtime delivery
+    #   (Firestore) + the Flutter UI layer on top of this REST foundation. </chat>
+    "chat_threads": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "project_id": "TEXT",
+            "lead_id": "TEXT",
+            "kind": "TEXT",            # dm | group
+            "title": "TEXT",
+            "created_by": "TEXT",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("lead_id", 1)], "unique": False},
+        ],
+    },
+    "chat_messages": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "thread_id": "TEXT",
+            "sender_type": "TEXT",     # staff | customer
+            "sender_id": "TEXT",
+            "sender_name": "TEXT",
+            "body": "TEXT",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("thread_id", 1)], "unique": False},
+            {"cols": [("created_at", 1)], "unique": False},
+        ],
+    },
+
     # <table name="activities"><purpose>Per-lead timeline (calls, notes, stage changes).</purpose></table>
     "activities": {
         "pk": "id",

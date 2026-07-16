@@ -56,6 +56,7 @@ ACTIONS = {
     "expense.submitted", "expense.approved", "expense.rejected",
     "campaign.imported", "campaign.distributed", "leads.distributed_to_se",
     "client.otp_requested", "client.otp_failed", "client.login", "client.logout", "client.step_up",
+    "chat.message_sent",
     "client.design_approved", "client.design_changes_requested",
     "document.uploaded", "document.downloaded",
     "automation.toggled", "automation.run_checks",
