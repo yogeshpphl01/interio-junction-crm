@@ -168,7 +168,7 @@ concrete recommendation for this system.
 | J1 | Audit log of security‑relevant actions | **AU‑2/AU‑12**; A.8.15; CIS 8 | ✅ `audit_log` (login, RBAC actions, payments, estimates, client actions, push) | Ensure logins/failures, MFA events, role changes, privilege use, exports are all captured. |
 | J2 | Tamper‑resistant / append‑only audit | **AU‑9**; A.8.15; CWE‑778 | 🟡 stored in same DB | Ship to a write‑once/SIEM sink; restrict who can read/delete; the existing "purge CEO logs" job must not erase security events. |
 | J3 | No secrets/PII in logs | AU‑9; CWE‑532 | ✅ OTP codes gated to dev (`OTP_DEBUG_LOG`); prod logs a masked line | Keep redacting tokens/PII everywhere; add a log‑scrub review to CI. |
-| J4 | Monitoring, alerting & anomaly detection | SI‑4; DE.CM (CSF); CIS 13 | ❌ | Alert on brute force, OTP abuse, privilege escalation, mass export, geo‑anomalies. |
+| J4 | Monitoring, alerting & anomaly detection | SI‑4; DE.CM (CSF); CIS 13 | 🟡 signal list + alert routing specified in `BACKUP_DR.md` §5 (login‑fail/OTP/MFA bursts, privileged events, refunds, webhook rejects) | Wire to Cloud Monitoring/Logging in prod. |
 | J5 | Time sync & correlation ids | AU‑8 | 🟡 UTC ISO timestamps | Add request/correlation ids; NTP on hosts. |
 
 ## K. Secrets & Configuration Management
@@ -219,10 +219,10 @@ concrete recommendation for this system.
 
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
-| O1 | Encrypted, tested backups | CP‑9; A.8.13; CIS 11 | ❌/infra | Automated Cloud SQL backups + PITR; periodic restore tests; encrypt & isolate. |
-| O2 | Incident response plan | **IR‑8**; A.5.24‑A.5.28 | ❌ | Written IR plan, roles, contacts, playbooks (account compromise, data breach, token leak). |
-| O3 | Business continuity / DR | CP‑10; A.5.29/A.5.30 | ❌ | RTO/RPO targets; multi‑zone; failover runbook. |
-| O4 | Logging retention for forensics | AU‑11; A.8.15 | 🟡 | Define retention (e.g., 1yr security logs); protect from tampering (J2). |
+| O1 | Encrypted, tested backups | CP‑9; A.8.13; CIS 11 | 🟡 backup plan (PITR + nightly dump + object versioning + immutable/offline copy) + restore procedure + quarterly drill in `BACKUP_DR.md` | Enable on Cloud SQL/bucket in prod; record a test restore. |
+| O2 | Incident response plan | **IR‑8**; A.5.24‑A.5.28 | ✅ **`INCIDENT_RESPONSE.md`** — roles, detect→contain→assess→**DPDP §8(6) notify**→recover→review, with templates (P1‑11) | Fill real contacts; run a tabletop. |
+| O3 | Business continuity / DR | CP‑10; A.5.29/A.5.30 | 🟡 RPO/RTO targets + DR scenarios + failover runbook in `BACKUP_DR.md` | Implement multi‑region failover in prod. |
+| O4 | Logging retention for forensics | AU‑11; A.8.15 | 🟡 retention schedule in `DATA_RETENTION.md`; forensics guidance in `INCIDENT_RESPONSE.md` | Ship to a write‑once sink (J2). |
 
 ## P. Secure SDLC & Vulnerability Management
 *(OWASP ASVS V1/SAMM; NIST SSDF SP 800‑218, SA‑11/SA‑15/RA‑5; ISO A.8.25‑A.8.29; CIS 16; CWE Top 25 program)*
@@ -232,7 +232,7 @@ concrete recommendation for this system.
 | P1 | SAST / secret scanning in CI | SA‑11; CIS 16 | ✅ **bandit** SAST (medium+) + **gitleaks** secret scan + **pip‑audit** SCA in CI, blocking on new findings (`security-ci.yml`, `secret-scan.yml`; P0‑5/P1‑14) | Add Dart analyzer rules + Semgrep for deeper coverage. |
 | P2 | DAST / API fuzzing | SA‑11 | ❌ | Run ZAP/API fuzzing against staging; test authZ (BOLA/BFLA) automatically. |
 | P3 | Periodic pentest + MASTG mobile test | 800‑163; A.8.29 | ❌ | Independent pentest of both apps + API before GA; retest after major changes. |
-| P4 | Threat modeling | SA‑15; A.8.25 | 🟡 dual‑BFF designed for it | Document a STRIDE threat model per app + the payment/OTP flows. |
+| P4 | Threat modeling | SA‑15; A.8.25 | ✅ **`THREAT_MODEL.md`** — STRIDE across both apps + backend, assets, trust boundaries (dual‑BFF), each threat mapped to its control, residual‑risk register (P2) | Revisit on major changes. |
 | P5 | Security requirements & training | A.6.3/A.8.28 | ❌ | Secure‑coding guidelines; developer security training; this doc as the requirements baseline. |
 
 ---
@@ -263,7 +263,7 @@ concrete recommendation for this system.
 ### NIST
 
 - **SP 800‑63B (identity):** customers ≈ **AAL1** (single possession factor OTP); **staff below AAL1** (password only). **Target AAL2** (MFA) for staff, AAL2 step‑up for customer payments. (See Part 5.)
-- **SP 800‑53r5 families in scope:** **AC** (access control — Part 4), **IA** (auth/MFA — Part 5), **AU** (audit ✅/🟡), **SC** (transport/crypto 🟡), **SI** (input/monitoring 🟡), **CM** (config 🟡), **CP/IR** (backup/IR ❌), **SR** (supply chain ❌), **RA** (RA‑5 scanning ❌).
+- **SP 800‑53r5 families in scope:** **AC** (access control ✅ — Part 4/P1‑9), **IA** (auth/MFA ✅ — Part 5/P1‑6‑7), **AU** (audit ✅/🟡), **SC** (transport/crypto 🟡), **SI** (input ✅/monitoring 🟡), **CM** (config 🟡), **CP/IR** (backup/IR 🟡 — plans written, prod wiring pending), **SR** (supply chain 🟡 — SAST/SCA in CI), **RA** (RA‑5 scanning 🟡 — pip‑audit/bandit).
 - **SP 800‑163 (app vetting)** / **800‑124 (mobile device sec):** pre‑release app vetting + MDM/EMM for staff devices ❌.
 - **CSF 2.0:** GV 🟡 · ID 🟡 · **PR** (protect) 🟡 · **DE** (detect/monitoring) ❌ · **RS/RC** (respond/recover) ❌.
 
@@ -301,10 +301,10 @@ concrete recommendation for this system.
 14. 🟡 **Dependency scanning + SAST/secret scan in CI** (L2/P1) — bandit + pip‑audit + gitleaks wired and blocking (`security-ci.yml`). Remaining: Flutter dep scan, upgrade fastapi/starlette to clear the tracked CVE exception, pentest before launch.
 
 **P2 — mature the program:**
-15. Monitoring/alerting + SIEM, anomaly detection (J4).
-16. Backup/restore tests, IR & DR plans (O1‑O3).
-17. Field‑level PII encryption / tokenization; data classification & retention (C6/C8).
-18. Threat models, security training, periodic re‑test (P3‑P5).
+15. 🟡 Monitoring/alerting + SIEM, anomaly detection (J4) — signals + routing specified in `BACKUP_DR.md` §5; wire in prod.
+16. 🟡 Backup/restore tests, IR & DR plans (O1‑O3) — **IR plan done** (`INCIDENT_RESPONSE.md`); backup/DR plan + restore procedure + drills in `BACKUP_DR.md`; enable on prod infra.
+17. 🟡 Field‑level PII encryption / tokenization; classification & retention (C6/C8) — **retention/classification done** (`DATA_RETENTION.md`); PII encryption **designed** (`THREAT_MODEL.md` §5, deterministic/blind‑index) — implement behind a flag with a KMS.
+18. 🟡 Threat models, security training, periodic re‑test (P3‑P5) — **STRIDE threat model done** (`THREAT_MODEL.md`); remaining: independent pentest + MASTG before GA, staff training.
 
 ---
 
