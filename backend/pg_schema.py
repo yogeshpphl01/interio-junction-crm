@@ -340,6 +340,44 @@ SCHEMA: dict[str, dict] = {
         ],
     },
 
+    # <passkeys> WebAuthn / FIDO2 credentials for phishing-resistant staff login
+    #   (admin/CEO). Registration + authentication ceremonies verified by
+    #   py_webauthn; see routers/passkeys.py. </passkeys>
+    "webauthn_credentials": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "user_id": "TEXT",
+            "credential_id": "TEXT",   # base64url of the raw credential id
+            "public_key": "TEXT",      # base64url of the COSE public key
+            "sign_count": "INTEGER",
+            "transports": "TEXT",
+            "label": "TEXT",
+            "created_at": "TEXT",
+            "last_used_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("user_id", 1)], "unique": False},
+            {"cols": [("credential_id", 1)], "unique": True},
+        ],
+    },
+    "webauthn_challenges": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "user_id": "TEXT",
+            "kind": "TEXT",            # register | auth
+            "challenge": "TEXT",       # base64url
+            "expires_at": "TEXT",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("user_id", 1)], "unique": False},
+        ],
+    },
+
     # <chat> Project chat (customer <-> staff). A thread starts as a DM and can
     #   convert to a project GROUP once the project activates. Realtime delivery
     #   (Firestore) + the Flutter UI layer on top of this REST foundation. </chat>

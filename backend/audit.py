@@ -35,6 +35,7 @@ ACTIONS = {
     "auth.password_reset_requested", "auth.password_reset_completed", "auth.password_reset_failed",
     "auth.mfa_enrolled", "auth.mfa_verified", "auth.mfa_failed", "auth.mfa_step_up", "auth.mfa_disabled",
     "auth.break_glass",   # CEO/super-account login — alert in real time (SoD Part 4)
+    "auth.passkey_registered", "auth.passkey_login",
     "user.created", "user.updated", "user.deactivated", "user.reactivated",
     "user.deleted", "user.profile_updated",
     "user.password_changed", "user.password_reset",

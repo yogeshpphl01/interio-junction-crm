@@ -51,7 +51,7 @@ concrete recommendation for this system.
 | A5 | Short‑lived access token + refresh | ASVS V3.3; 800‑63B §7 | ✅ access 8h (staff)/24h (customer), refresh 7d/60d, typed | Shorten staff access to ≤1h; see A6/A7. |
 | A6 | Refresh‑token rotation + reuse detection | ASVS V3.3; 800‑63B §7.2 | 🟡 refresh now **rotates** — every `/auth/refresh` (staff) and `/client/auth/refresh` (customer) issues a fresh access **and** refresh token; a global `token_version` revokes the whole family on logout/credential‑change/deactivation | Per‑token single‑use reuse detection (jti store or client single‑flight) deferred — at current scale family‑revocation covers the theft case; add jti tracking before multi‑device. |
 | A7 | Token revocation / real logout | ASVS V3.3; A.8.5; CWE‑613 | ✅ **`token_version` revocation** — every access/refresh token carries `tv`; `get_current_user`/`get_current_customer` reject a stale `tv` (401). Logout, admin reset‑password, deactivate, role change and self change/reset‑password all bump it → **live Bearer tokens die instantly** (verified: 25/25 checks) | — |
-| A8 | MFA for employees | **800‑63B AAL2**; API2; A.8.5; CIS 6.3/6.4 | ✅ **TOTP MFA** (RFC 6238, dep‑free): enroll/activate, two‑step login, one‑time backup codes, replay‑protected, `aal`/`amr` claims, step‑up token; `require_aal2`/`require_step_up` deps ready | Enforce enrollment for all staff; add **passkey/FIDO2 for admin/CEO** (phishing‑resistant); wire step‑up onto privileged endpoints (P1‑9). |
+| A8 | MFA for employees | **800‑63B AAL2**; API2; A.8.5; CIS 6.3/6.4 | ✅ **TOTP MFA** (RFC 6238) + **WebAuthn/FIDO2 passkeys** (phishing‑resistant, `routers/passkeys.py`: register + login ceremonies via py_webauthn, AAL2 `amr=[webauthn]` session; verified 10/10 with a real ES256 authenticator). `aal`/`amr` claims; `require_aal2`/`require_step_up` deps | Enforce enrollment (esp. admin/CEO); ship the platform‑authenticator UI. |
 | A9 | Second factor / step‑up for customers on high‑risk actions | 800‑63B; M3 | ✅ **customer step‑up**: on‑device biometric/PIN → `POST /client/auth/step-up` → `X-Client-Step-Up` token gates **accept‑estimate** & **approve‑design** (`assert_client_step_up`, env‑gated `CLIENT_STEP_UP_ENABLED`; `ij_core.Biometric`); verified | Flip the flag once the app ships the biometric prompt; extend to payments. |
 | A10 | Idle + absolute session timeout | ASVS V3.3; 800‑53 AC‑11/AC‑12 | 🟡 token TTL only | Enforce inactivity re‑auth in‑app; require re‑login on token expiry (no silent infinite refresh for staff). |
 | A11 | Bind session to device; detect impossible travel | 800‑63B; API2 | ❌ | Record device id on FCM/token issue; flag concurrent/geo‑anomalous sessions for staff. |
@@ -247,7 +247,7 @@ concrete recommendation for this system.
 |---|---|---|
 | MASVS‑STORAGE | 🟡 | keyboard hygiene done (C4); screenshot/backup in code+docs, apply manifest flags (C2/C3) |
 | MASVS‑CRYPTO | ✅/🟡 | JWT → asymmetric + rotation (E2/E4) |
-| MASVS‑AUTH | ✅/🟡 | ✅ MFA (staff), token revocation, refresh rotation, login lockout (A3/A7/A8); remaining: passkeys for admins, per‑token reuse detection (A6) |
+| MASVS‑AUTH | ✅/🟡 | ✅ MFA (TOTP + **passkeys/FIDO2**), token revocation, refresh rotation, login lockout (A3/A7/A8); remaining: per‑token reuse detection (A6) |
 | MASVS‑NETWORK | 🟡 | HTTPS enforced; pinning hook + Android `<pin-set>` scaffolded — supply prod pins (D1‑D2) |
 | MASVS‑PLATFORM | ❌ | exported components, deep links, tapjacking (G1/G6/F5) |
 | MASVS‑CODE | 🟡 | dep scanning, input bounds (F2/L2) |
@@ -290,7 +290,7 @@ concrete recommendation for this system.
 5. **Secrets → GCP Secret Manager**; rotate `JWT_SECRET`/DB creds; enable secret scanning (E3/K1).
 
 **P1 — before general availability:**
-6. **MFA for all staff (TOTP)**; phishing‑resistant for admins (Part 5).
+6. ✅ **MFA for staff** — TOTP (P1‑6) **+ WebAuthn/FIDO2 passkeys** (phishing‑resistant, verified 10/10); remaining: enforce enrollment + ship the platform‑authenticator UI.
 7. ✅ **Refresh‑token rotation + revocation**, immediate deactivation (A6‑A8/B8) — `token_version` kills live tokens on logout / credential change / deactivation / role change; refresh rotates both tokens (verified 25/25).
 8. 🟡 **TLS pinning + Firebase App Check + Play Integrity/App Attest** (D2/G4) — backend App Check gate built + verified (RS256/JWKS, fail‑closed, env‑gated), `ApiClient` pinning + attestation‑header hooks added, Android `<pin-set>` documented. Remaining: real cert pins + Firebase provider config, then flip the flags on.
 9. ✅ **Segregation of privileges** (Part 4) — payment record/confirm/refund split, `accounts` + `system_admin` roles, admin stripped of money, four‑eyes on approvals/booking/refund, step‑up wiring, CEO break‑glass alert, hash‑chained audit (all verified).
