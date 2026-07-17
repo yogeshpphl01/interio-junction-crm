@@ -1,4 +1,5 @@
 """Audit log helper. Records every meaningful action across the CRM."""
+import os
 import uuid
 import json
 import hashlib
@@ -68,7 +69,32 @@ ACTIONS = {
     # DPDP / privacy (P1-11)
     "privacy.consent_recorded", "privacy.data_exported",
     "privacy.erasure_requested", "privacy.erased", "privacy.erasure_rejected",
+    "security.bulk_read",   # a staff mass-read of PII-bearing records (exfiltration signal)
 }
+
+
+def _bulk_threshold() -> int:
+    try:
+        return int(os.environ.get("BULK_READ_ALERT_THRESHOLD", "100") or 100)
+    except ValueError:
+        return 100
+
+
+async def audit_bulk_read(db, user: Optional[dict], resource: str, count: int,
+                          request: Optional[Request] = None) -> bool:
+    """Detective control against PII exfiltration: when a single staff read
+    returns >= BULK_READ_ALERT_THRESHOLD records, record a `security.bulk_read`
+    event flagged for real-time alerting (see BACKUP_DR §5). Returns True if it
+    alerted. Fire-and-forget — never breaks the request."""
+    threshold = _bulk_threshold()
+    if count < threshold:
+        return False
+    try:
+        await log_audit(db, user, "security.bulk_read", "security", None, resource,
+                        {"resource": resource, "count": count, "threshold": threshold, "alert": True}, request)
+    except Exception as exc:
+        logger.warning(f"bulk-read audit failed for {resource}: {exc}")
+    return True
 
 
 async def log_audit(

@@ -68,6 +68,10 @@ Wire these once on the production platform (e.g. Cloud Monitoring + Logging):
 - Privileged events — `user.deleted`, role changes, `privacy.erased`,
   `payment.refunded`, `payment.amount_mismatch`, `payment.webhook_rejected` —
   alert a human in real time.
+- `auth.break_glass` (CEO/super-account login) — page on-call in real time.
+- `security.bulk_read` — a single staff list read returned ≥
+  `BULK_READ_ALERT_THRESHOLD` (default 100) PII-bearing records; a mass-read /
+  exfiltration signal. `metadata` carries `{resource, count, threshold}`.
 - `token_version`/revocation surges; step-up failures.
 - gitleaks / pip-audit / bandit CI failures.
 

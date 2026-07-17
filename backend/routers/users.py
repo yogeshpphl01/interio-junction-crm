@@ -25,7 +25,7 @@ from core import (
     ROLE_ADMIN, ROLE_CEO, BUILTIN_ROLES, now_iso, revoke_tokens, assert_step_up,
 )
 from auth_utils import hash_password
-from audit import log_audit
+from audit import log_audit, audit_bulk_read
 
 router = APIRouter()
 
@@ -45,8 +45,10 @@ async def _valid_roles() -> set[str]:
 
 
 @router.get("/users")
-async def list_users(user: dict = Depends(get_current_user)):
-    return await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+async def list_users(request: Request, user: dict = Depends(get_current_user)):
+    rows = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    await audit_bulk_read(db, user, "users", len(rows), request)
+    return rows
 
 
 @router.post("/users")

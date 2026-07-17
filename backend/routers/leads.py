@@ -12,13 +12,14 @@ from core import (
     derive_lifecycle_phase, init_journey, record_stage_transition,
     close_open_journey_entry, JOURNEY_DELIVERED_STAGE,
 )
-from audit import log_audit
+from audit import log_audit, audit_bulk_read
 
 router = APIRouter()
 
 
 @router.get("/leads")
 async def list_leads(
+    request: Request,
     user: dict = Depends(get_current_user),
     stage: Optional[int] = None,
     status: Optional[str] = None,
@@ -44,6 +45,8 @@ async def list_leads(
             or_clauses.append({"project_id": {"$in": [p["id"] for p in proj_rows]}})
         filt["$or"] = or_clauses
     leads = await db.leads.find(filt, {"_id": 0}).sort("updated_at", -1).to_list(2000)
+    # Exfiltration signal: alert when a single read returns a large PII set.
+    await audit_bulk_read(db, user, "leads", len(leads), request)
     return await enrich_leads(leads)
 
 

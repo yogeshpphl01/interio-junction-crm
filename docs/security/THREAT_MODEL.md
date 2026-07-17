@@ -66,6 +66,7 @@ backend. Maps each threat to the control that addresses it (✅ built & verified
 | Secrets in code/logs/repo | ✅ env + fail-fast validation (P0-5); ✅ OTP/reset codes never logged in prod; ✅ gitleaks in CI |
 | Leaking internal storage paths / documents | ✅ signed URLs, no `storage_path` exposed, per-project/customer authZ (P1-10) |
 | PII over-exposure to staff by role | ✅ RBAC + lead/project visibility scoping; ✅ least-privilege re-map (P1-9) |
+| Insider mass-read / bulk export of PII (compromised or rogue staff account) | ✅ **detective** `security.bulk_read` audit event when one list read returns ≥ `BULK_READ_ALERT_THRESHOLD` (default 100) records → real-time alert (J-domain, `BACKUP_DR §5`); tamper-evident via hash-chained audit log. ⬜ per-account daily read-volume quotas |
 | Enumeration of customers via OTP endpoint | ✅ generic responses, no existence oracle (A4) |
 | PII at rest readable if DB dumped | ✅ **AES-256-GCM field encryption + blind index** for customer phone/email (env-gated `PII_ENCRYPTION_KEY`, §5); TLS + least-priv DB. ⬜ prod KMS key + extend to leads/staff |
 | Data-subject can't see/remove their data | ✅ DPDP export + erasure (P1-11) |
