@@ -16,6 +16,8 @@ import { initials } from "@/lib/format";
 import ChangePasswordModal from "@/components/ChangePasswordModal";
 import EditProfileModal from "@/components/EditProfileModal";
 import RecoveryEmailModal from "@/components/RecoveryEmailModal";
+import SecurityModal from "@/components/SecurityModal";
+import { ShieldCheck } from "lucide-react";
 import {
   LayoutDashboard, Columns3, Users, Ruler, BarChart3, Settings, LogOut,
   Sparkles, Workflow, Menu, X, ScrollText, Bell, KeyRound, Pencil, FolderKanban,
@@ -52,6 +54,7 @@ export default function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showChangePwd, setShowChangePwd] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showSecurity, setShowSecurity] = useState(false);
   const [recoveryDismissed, setRecoveryDismissed] = useState(false);
 
   if (!user) return null;
@@ -143,6 +146,14 @@ export default function AppShell() {
               <KeyRound className="w-4 h-4" />
             </button>
             <button
+              onClick={() => setShowSecurity(true)}
+              data-testid="security-btn"
+              className="p-2 rounded hover:bg-bone-subtle text-ink-soft"
+              title="Security & two-factor authentication"
+            >
+              <ShieldCheck className="w-4 h-4" />
+            </button>
+            <button
               onClick={onLogout}
               data-testid="logout-btn"
               className="p-2 rounded hover:bg-bone-subtle text-ink-soft"
@@ -188,6 +199,7 @@ export default function AppShell() {
 
       {showChangePwd && <ChangePasswordModal onClose={() => setShowChangePwd(false)} />}
       {showEditProfile && <EditProfileModal onClose={() => setShowEditProfile(false)} />}
+      {showSecurity && <SecurityModal onClose={() => setShowSecurity(false)} />}
       {/* First-login capture: prompt for a recovery email until one is on file. */}
       {user && !user.recovery_email && !recoveryDismissed && (
         <RecoveryEmailModal onClose={() => setRecoveryDismissed(true)} onSkip={() => setRecoveryDismissed(true)} />
