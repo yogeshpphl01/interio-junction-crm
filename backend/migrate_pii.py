@@ -29,7 +29,10 @@ async def run() -> None:
     try:
         for table, cols in TARGETS.items():
             select_cols = ", ".join(['"id"'] + [f'"{c}"' for c in cols])
-            rows = await conn.fetch(f'SELECT {select_cols} FROM "{table}"')
+            # nosec B608 — table/column identifiers come from the trusted, in-code
+            # SCHEMA registry (TARGETS), never user input; all values are bound
+            # parameters. No untrusted string reaches the SQL text.
+            rows = await conn.fetch(f'SELECT {select_cols} FROM "{table}"')  # nosec B608
             changed = 0
             for r in rows:
                 sets, params = [], []
@@ -43,7 +46,9 @@ async def run() -> None:
                     sets.append(f'"{c}_bidx" = ${len(params)}')
                 if sets:
                     params.append(r["id"])
-                    await conn.execute(f'UPDATE "{table}" SET {", ".join(sets)} WHERE "id" = ${len(params)}', *params)
+                    # nosec B608 — see note above: identifiers are from the trusted
+                    # SCHEMA registry; every value is a bound parameter ($1..$n).
+                    await conn.execute(f'UPDATE "{table}" SET {", ".join(sets)} WHERE "id" = ${len(params)}', *params)  # nosec B608
                     changed += 1
             log.info("%s: encrypted %d/%d row(s)", table, changed, len(rows))
     finally:
