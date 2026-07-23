@@ -9,8 +9,10 @@ import {
   ArrowLeft, FileText, Image as ImageIcon, Upload, Download,
   Plus, Pencil, Phone, Mail, MapPin, Calendar, Ruler, Layers, IndianRupee,
   Trophy, XCircle, PauseCircle, RotateCcw, Footprints, Wrench, Tag, Trash2, Factory,
+  MessageCircle,
 } from "lucide-react";
 import CloseLeadModal from "@/components/CloseLeadModal";
+import ChatPanel from "@/components/ChatPanel";
 
 export default function LeadDetail() {
   const { id } = useParams();
@@ -271,6 +273,12 @@ export default function LeadDetail() {
         </div>
 
         <div className="col-span-12 lg:col-span-4 space-y-6">
+          {/* Client messaging — staff side of the project chat (chat.access) */}
+          {data.project?.id && (user.permissions || []).includes("chat.access") && (
+            <Card title="Messages" icon={MessageCircle}>
+              <ChatPanel projectId={data.project.id} customerName={data.full_name} />
+            </Card>
+          )}
           {/* Payments rail */}
           <Card title="Milestone Payments" icon={IndianRupee}>
             {data.payments.length === 0 ? (
