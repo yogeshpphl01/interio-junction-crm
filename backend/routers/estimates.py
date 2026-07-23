@@ -18,11 +18,12 @@
 """
 import uuid
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
 from core import (
     db, get_current_user, has_permission, require_permission,
+    deny_self_action, assert_step_up,
     ensure_lead_visible, visible_lead_ids, now_iso,
 )
 from audit import log_audit
@@ -174,8 +175,14 @@ async def submit_estimate(estimate_id: str, user: dict = Depends(require_permiss
 
 
 @router.post("/estimates/{estimate_id}/approve")
-async def approve_estimate(estimate_id: str, user: dict = Depends(require_permission("estimates.approve"))):
-    """PM / Marketing Head approves a submitted estimate."""
+async def approve_estimate(estimate_id: str, request: Request, user: dict = Depends(require_permission("estimates.approve"))):
+    """PM / Marketing Head approves a submitted estimate. Four-eyes: the approver
+    may not be the estimate's creator (SoD), and a step-up may be required."""
+    est = await db.estimates.find_one({"id": estimate_id}, {"_id": 0, "created_by": 1})
+    if not est:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    deny_self_action(est.get("created_by"), user, "estimate")
+    await assert_step_up(request, user)
     return await _transition(estimate_id, user, allow_from={SUBMITTED}, to=APPROVED, action="approved",
                              extra={"approved_by": user["id"]})
 

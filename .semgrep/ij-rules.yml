@@ -1,0 +1,59 @@
+rules:
+  # Curated, offline-runnable SAST rules for the CRM backend (P1-14 follow-up).
+  # These need no rule registry, so they run in CI even air-gapped; CI ALSO pulls
+  # the public p/python + p/security-audit packs (see security-ci.yml).
+
+  - id: ij-no-tls-verify-false
+    languages: [python]
+    severity: ERROR
+    message: >
+      TLS certificate verification disabled (verify=False). Never disable TLS
+      verification in application code (CWE-295).
+    patterns:
+      - pattern-either:
+          - pattern: requests.$M(..., verify=False, ...)
+          - pattern: $SESSION.request(..., verify=False, ...)
+
+  - id: ij-no-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: >
+      subprocess with shell=True invites command injection (CWE-78). Pass an
+      argument list and shell=False.
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$F(..., shell=True, ...)
+          - pattern: subprocess.$F($CMD, ..., shell=True, ...)
+
+  - id: ij-no-eval-exec
+    languages: [python]
+    severity: ERROR
+    message: eval()/exec() on runtime data is code injection (CWE-95). Remove it.
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+
+  - id: ij-no-yaml-unsafe-load
+    languages: [python]
+    severity: ERROR
+    message: yaml.load without SafeLoader can execute arbitrary objects (CWE-502). Use yaml.safe_load.
+    patterns:
+      - pattern: yaml.load($X)
+
+  - id: ij-no-fstring-sql-in-routers
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/routers/"
+    message: >
+      SQL built from an f-string in a router. All SQL must go through the
+      parameterized shim (database.py); never format SQL with user data (CWE-89).
+    patterns:
+      - pattern-either:
+          - pattern: $CONN.execute(f"...")
+          - pattern: $CONN.fetch(f"...")
+          - pattern: $CONN.fetchrow(f"...")
+          - pattern: $CONN.fetchval(f"...")
+    # (Hard-coded secret detection is handled by gitleaks — secret-scan.yml.)

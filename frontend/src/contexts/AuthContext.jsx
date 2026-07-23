@@ -9,6 +9,7 @@
 */
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api, formatApiErrorDetail } from "@/lib/api";
+import { beginPasskeyLogin, isPasskeyCancel } from "@/lib/webauthn";
 
 const AuthCtx = createContext(null);
 
@@ -34,11 +35,41 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     try {
       const { data } = await api.post("/auth/login", { email, password });
+      // Staff MFA (P1-6): when a second factor is enrolled the backend withholds
+      // the session and returns a short-lived pre-auth token instead. The Login
+      // page then collects a TOTP/backup code and calls completeMfa().
+      if (data?.mfa_required) return { ok: false, mfaRequired: true, mfaToken: data.mfa_token };
       if (data?.access_token) localStorage.setItem("ij_access_token", data.access_token);
       setUser(data.user);
       return { ok: true };
     } catch (e) {
       return { ok: false, error: formatApiErrorDetail(e?.response?.data?.detail) || e.message };
+    }
+  };
+
+  // Step 2 of an MFA login: exchange the pre-auth token + code for a full session.
+  const completeMfa = async (mfaToken, code) => {
+    try {
+      const { data } = await api.post("/auth/mfa/verify", { mfa_token: mfaToken, code });
+      if (data?.access_token) localStorage.setItem("ij_access_token", data.access_token);
+      setUser(data.user);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: formatApiErrorDetail(e?.response?.data?.detail) || e.message };
+    }
+  };
+
+  // Phishing-resistant sign-in with a passkey (A8). No password, no MFA step —
+  // the WebAuthn assertion mints a full AAL2 session directly.
+  const loginWithPasskey = async (email) => {
+    try {
+      const data = await beginPasskeyLogin(email);
+      if (data?.access_token) localStorage.setItem("ij_access_token", data.access_token);
+      setUser(data.user);
+      return { ok: true };
+    } catch (e) {
+      if (isPasskeyCancel(e)) return { ok: false, cancelled: true };
+      return { ok: false, error: formatApiErrorDetail(e?.response?.data?.detail) || "Passkey sign-in failed" };
     }
   };
 
@@ -51,7 +82,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, loading, login, logout, refresh, setUser }}>
+    <AuthCtx.Provider value={{ user, loading, login, completeMfa, loginWithPasskey, logout, refresh, setUser }}>
       {children}
     </AuthCtx.Provider>
   );

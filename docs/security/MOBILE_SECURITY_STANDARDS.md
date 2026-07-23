@@ -1,0 +1,477 @@
+# Interio Junction — Mobile Security Standards, Controls & Recommendations
+
+Security requirements for the **Client App** (customers), the **Company App**
+(employees), and the shared **FastAPI/PostgreSQL backend**, mapped to **OWASP
+(MASVS, Mobile Top 10, API Security Top 10, ASVS)**, **NIST (SP 800‑63B, SP
+800‑53r5, SP 800‑163/124, CSF 2.0)**, **ISO/IEC (27001:2022, 27002, 27017/27018,
+27701)** and **SANS (CIS Controls v8, CWE Top 25)** — plus India's **DPDP Act
+2023** (the apps hold consumer PII).
+
+This is an audit + action document, not a claim of certification. It states, per
+control, what the system does **today** and what to **do next**.
+
+## How to read
+
+- ✅ **In place** — implemented and verified this build.
+- 🟡 **Partial** — foundation exists; hardening or config still required.
+- ❌ **To‑do** — recommended control not yet present.
+
+Status reflects the code in this repo (`backend/`, `mobile/`). It is deliberately
+honest — several important controls are ❌ and are called out so nothing is missed.
+
+## System recap (attack surface)
+
+| Layer | What | Sensitive assets |
+|---|---|---|
+| Client App (Flutter) | Customer identity, phone‑OTP login | customer PII (name/phone/email/address), estimate/pricing, payment status, JWT |
+| Company App (Flutter) | Employee identity, RBAC | all customer data, production/QR, financials, JWT, RBAC scope |
+| Backend (FastAPI) | Dual‑BFF (`/api/client/*` vs company surface), RBAC, OTP, JWT | everything; DB credentials; JWT secret; audit log |
+| Data/Infra | PostgreSQL, object storage, FCM, Infurnia, UPI/Razorpay | PII at rest, files, push tokens, payment refs |
+
+Trust boundaries: **customer ↔ backend**, **employee ↔ backend**, **backend ↔
+Postgres**, **backend ↔ external (FCM, Infurnia, payment gateway, storage)**, and
+the **dual‑BFF wall** between the two identity worlds.
+
+---
+
+# Part 1 — Consolidated control checklist (by domain)
+
+Each row: the control, the standard(s) it satisfies, current status, and the
+concrete recommendation for this system.
+
+## A. Authentication & Session Management
+*(OWASP MASVS‑AUTH, Mobile M3, API2; ASVS V2/V3; NIST 800‑63B; 800‑53 IA‑2/IA‑5/AC‑12; ISO A.5.17/A.8.5; CIS 6; CWE‑287/384/613/307)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| A1 | Passwords hashed with a slow, salted KDF | ASVS V2.4; 800‑63B; A.8.24; CWE‑916 | ✅ bcrypt (`auth_utils.hash_password`) | Move work factor to ≥12; migrate to Argon2id when convenient. |
+| A2 | Credentials never logged / in source | 800‑53 IA‑5; A.8.15; CWE‑532 | ✅ OTP/reset codes now gated behind `OTP_DEBUG_LOG` (dev‑only) + force‑off when `APP_ENV=prod`; prod logs a redacted line, never the code | Keep scrubbing tokens/PII from all logs; extend the gate to any future secret log. |
+| A3 | Server‑side brute‑force / lockout on login | 800‑63B §5.2.2; ASVS V2.2; CWE‑307 | ✅ per‑account progressive lockout on `/auth/login` (5 fails → doubling lock, capped 60m; reset on success; 429 while locked) | Add per‑IP throttling at the gateway (I1/I2). |
+| A4 | Rate‑limit OTP request (anti‑enumeration + SMS‑bombing) | 800‑63B; API4 | ✅ 60s per‑phone cooldown + **10/day per‑phone cap**; generic response (no enumeration) | Add per‑IP + global caps + App Check at the gateway. |
+| A5 | Short‑lived access token + refresh | ASVS V3.3; 800‑63B §7 | ✅ access 8h (staff)/24h (customer), refresh 7d/60d, typed | Shorten staff access to ≤1h; see A6/A7. |
+| A6 | Refresh‑token rotation + reuse detection | ASVS V3.3; 800‑63B §7.2 | 🟡 refresh now **rotates** — every `/auth/refresh` (staff) and `/client/auth/refresh` (customer) issues a fresh access **and** refresh token; a global `token_version` revokes the whole family on logout/credential‑change/deactivation | Per‑token single‑use reuse detection (jti store or client single‑flight) deferred — at current scale family‑revocation covers the theft case; add jti tracking before multi‑device. |
+| A7 | Token revocation / real logout | ASVS V3.3; A.8.5; CWE‑613 | ✅ **`token_version` revocation** — every access/refresh token carries `tv`; `get_current_user`/`get_current_customer` reject a stale `tv` (401). Logout, admin reset‑password, deactivate, role change and self change/reset‑password all bump it → **live Bearer tokens die instantly** (verified: 25/25 checks) | — |
+| A8 | MFA for employees | **800‑63B AAL2**; API2; A.8.5; CIS 6.3/6.4 | ✅ **TOTP MFA** (RFC 6238) + **WebAuthn/FIDO2 passkeys** (phishing‑resistant, `routers/passkeys.py`: register + login ceremonies via py_webauthn, AAL2 `amr=[webauthn]` session; verified 10/10 with a real ES256 authenticator). `aal`/`amr` claims; `require_aal2`/`require_step_up` deps | Enforce enrollment (esp. admin/CEO); ship the platform‑authenticator UI. |
+| A9 | Second factor / step‑up for customers on high‑risk actions | 800‑63B; M3 | ✅ **customer step‑up**: on‑device biometric/PIN → `POST /client/auth/step-up` → `X-Client-Step-Up` token gates **accept‑estimate** & **approve‑design** (`assert_client_step_up`, env‑gated `CLIENT_STEP_UP_ENABLED`; `ij_core.Biometric`); verified | Flip the flag once the app ships the biometric prompt; extend to payments. |
+| A10 | Idle + absolute session timeout | ASVS V3.3; 800‑53 AC‑11/AC‑12 | 🟡 token TTL only | Enforce inactivity re‑auth in‑app; require re‑login on token expiry (no silent infinite refresh for staff). |
+| A11 | Bind session to device; detect impossible travel | 800‑63B; API2 | ❌ | Record device id on FCM/token issue; flag concurrent/geo‑anomalous sessions for staff. |
+| A12 | Password policy: ≥8 chars, screen against breach lists, **no forced rotation/composition** | **800‑63B §5.1.1** | 🟡 min‑8 only | Add breached‑password check (k‑anonymity/HIBP); keep no‑rotation/no‑composition per NIST; allow long passphrases + paste. |
+| A13 | Secure credential recovery | ASVS V2.5; 800‑63B §6 | ✅ email‑OTP reset (hashed, TTL, lockout) | Recovery must itself pass MFA for staff; rate‑limit; notify on reset. |
+| A14 | Neutral auth errors (no user enumeration) | ASVS V2.2; CWE‑203 | ✅ "Invalid credentials"/generic OTP responses | Keep; apply same to registration/reset timing. |
+
+## B. Authorization & Access Control (RBAC / multi‑tenant)
+*(OWASP API1 BOLA, API3 BOPLA, API5 BFLA; MASVS‑AUTH; ASVS V4; NIST 800‑53 AC‑2/3/6; ISO A.5.15/A.5.18/A.8.2/A.8.3; CIS 5/6; CWE‑639/862/863/285)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| B1 | Server‑side authorization on every endpoint | API5 BFLA; ASVS V4.1; AC‑3 | ✅ `require_permission` gates writes; reads scoped; **BFLA tests in CI** (low‑priv staff → 403 on privileged fns) | Assert a gate on every new route (deny‑by‑default). |
+| B2 | Object‑level authZ (no IDOR/BOLA) | **API1 BOLA**; CWE‑639 | ✅ customer data scoped by `customer_id`; 404 (not 403) hides others' objects; **BOLA tests in CI** (cross‑customer access → 404) | Extend the ownership check to every new object type. |
+| B3 | Dual‑BFF identity separation | API2/API5; AC‑6 | ✅ `customer_access` vs `access` token types mutually rejected | Keep tokens in separate namespaces; never share a signing key purpose across audiences (add `aud` claim). |
+| B4 | Least privilege in roles | **AC‑6**; A.8.2; CIS 6.8 | ✅ money split (`payments.record`/`confirm`/`refund`); `accounts` + `system_admin` roles; `admin` stripped of money; four‑eyes on approvals; CEO break‑glass‑alerted (P1‑9 + follow‑up). `ceo`=ALL by design (emergency) | — |
+| B5 | Mass‑assignment / property‑level authZ | **API3 BOPLA**; CWE‑915 | 🟡 Pydantic models constrain input; some PATCH allow‑lists | Explicit allow‑lists on all write models; never bind whole request to ORM/doc. |
+| B6 | Server‑authoritative business values | API6; CWE‑840 | ✅ estimate totals & booking amount computed server‑side | Keep; never trust client‑sent money/stage/role. |
+| B7 | Protect sensitive business flows (abuse) | **API6** | 🟡 idempotency on booking/scans | Add anti‑automation on bulk endpoints (campaign import, distribute, scan). |
+| B8 | Deactivation/role change takes effect immediately | AC‑2; A.5.18 | ✅ role/permissions are read **fresh from the DB every request** (never trusted from the token), and deactivation/role‑change bump `token_version` → the live token is rejected on its next call (verified) | — |
+
+## C. Data Storage (mobile) & Data‑at‑Rest (backend)
+*(OWASP MASVS‑STORAGE, Mobile M9; ASVS V6; NIST 800‑53 SC‑28/MP; ISO A.8.10/A.8.11/A.8.12; 27018; CIS 3; CWE‑312/311/922)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| C1 | Tokens/secrets in Keystore/Keychain, not plain prefs | **MASVS‑STORAGE‑1**; M9 | ✅ `flutter_secure_storage` (Keystore/Keychain) | Set Android `EncryptedSharedPreferences`/StrongBox where available; iOS `first_unlock_this_device`. |
+| C2 | No sensitive data in logs/cache/backups | MASVS‑STORAGE‑2; M9 | 🟡 `allowBackup=false` + data‑extraction excludes documented (`MOBILE_HARDENING.md`, P1‑12); tokens in Keystore/Keychain | Apply the manifest flags at `flutter create`; keep PII out of Flutter logs. |
+| C3 | Screenshot/recents & screen‑capture protection on sensitive screens | MASVS‑PLATFORM; M9 | 🟡 `SecureScreen`/`SecureScreenMixin` in `ij_core` applied to OTP + MFA challenge/enroll (P1‑12); native FLAG_SECURE handler + iOS snapshot‑blur documented | Wire the MainActivity handler; add the mixin to payment/document screens. |
+| C4 | Keyboard cache / autofill / clipboard hygiene | MASVS‑STORAGE; M9 | ✅ OTP + MFA code fields set `enableSuggestions:false`, `autocorrect:false`, `enableIMEPersonalizedLearning:false` (P1‑12) | Clear clipboard after any copy‑code affordance. |
+| C5 | DB encryption at rest | SC‑28; A.8.11; 27018 | 🟡 depends on Cloud SQL config | Enable Cloud SQL CMEK; encrypt backups; document key ownership. |
+| C6 | Field‑level encryption for high‑sensitivity PII | SC‑28; A.8.11; DPDP | 🟡 **transparent AES‑256‑GCM field encryption + HMAC blind index** for customer phone/email (`pii_crypto.py` + shim), so lookups & UNIQUE still work; env‑gated (`PII_ENCRYPTION_KEY`), backward‑compatible, with `migrate_pii.py` backfill (verified: 30 checks on + 40 off) | Supply a **KMS‑managed key** in prod; extend `encrypted:` to leads/staff PII. |
+| C7 | Object‑storage access is signed & least‑privilege | SC‑12; A.5.14; API1 | ✅ **short‑lived signed download URLs** (5‑min capability token bound to doc+subject) for staff and customers; the internal `storage_path` is no longer exposed to the client; downloads are `nosniff` + forced‑attachment (P1‑10, verified) | Move bytes to a private bucket + native signed URLs when storage is live; keep the app‑level token as the authZ gate. |
+| C8 | Data classification & retention | A.5.12/A.5.34; DPDP §8(7) | 🟡 classification + retention schedule in `DATA_RETENTION.md` (P1‑11) | Confirm legal retention values with a CA; implement the OTP/audit purge jobs. |
+
+## D. Network & Transport Security
+*(OWASP MASVS‑NETWORK, Mobile M5; ASVS V9; NIST 800‑53 SC‑8/SC‑13/SC‑23; ISO A.8.20/A.8.21/A.8.24; CIS 3.10; CWE‑319/295/297)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| D1 | TLS 1.2+ everywhere, no cleartext | **MASVS‑NETWORK‑1**; M5; SC‑8; CWE‑319 | ✅ backend rejects cleartext in prod (`ENFORCE_HTTPS`); `ij_core` refuses a non‑HTTPS base URL in release; Android/iOS config in `mobile/NETWORK_SECURITY.md` | Apply the network‑security‑config + ATS at `flutter create` time; add pinning (D2). |
+| D2 | Certificate / public‑key pinning | MASVS‑NETWORK‑2; CWE‑295 | 🟡 `ij_core.ApiClient` has a release‑only cert‑SHA‑256 pinning hook (`certSha256Pins`, via Dio `validateCertificate`), inert until pins supplied; Android native `<pin-set>` (SPKI) + pin‑computation documented in `mobile/NETWORK_SECURITY.md` | Supply real primary+backup pins from the production cert; wire Android `<pin-set>`. |
+| D3 | Reject invalid/expired certs (no bypass) | CWE‑295/297 | 🟡 default Dio validates | Never disable cert validation; the proxy‑bypass note in ops must not ship to prod. |
+| D4 | HSTS + secure response headers | ASVS V14.4; A.8.20 | ✅ security‑headers middleware: HSTS (prod), `X‑Content‑Type‑Options`, `X‑Frame‑Options`, `Referrer‑Policy`, `Cache‑Control:no‑store` on `/api` | Add CSP if any web UI is served. |
+| D5 | CORS locked down | ASVS V14.5; API8 | 🟡 `CORS_ORIGINS` configurable, defaults `*` (creds off) | Pin exact origins for any web; mobile uses no CORS — keep `*` off in prod. |
+| D6 | Mutual TLS / signed webhooks for gateways | API10; SC‑8 | ✅ **live Razorpay webhook** (`routers/webhooks.py`): HMAC‑SHA256 signature (constant‑time), idempotency ledger, amount/currency match, inert until configured (P1‑13, verified) | Allow‑list gateway IPs at the edge; validate Infurnia payloads similarly. |
+
+## E. Cryptography & Key Management
+*(OWASP MASVS‑CRYPTO, Mobile M10; ASVS V6; NIST SP 800‑57, 800‑53 SC‑12/13/17; ISO A.8.24; CWE‑327/330/338)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| E1 | Strong, standard algorithms only | MASVS‑CRYPTO‑1; CWE‑327 | ✅ bcrypt, HMAC‑SHA256 (JWT) | Keep; no home‑grown crypto. |
+| E2 | JWT signing: prefer asymmetric + key id | ASVS V3.5; SC‑12 | 🟡 **HS256 shared secret** | Move to **RS256/ES256** (private key signs, public verifies); add `kid` + `aud`; enables rotation & separation. |
+| E3 | Secure secret storage / no secrets in code | **SC‑12**; A.8.24; CWE‑798 | ✅ startup **fails fast** on missing/weak `JWT_SECRET` in prod; no secrets committed; `docs/security/SECRETS.md` specifies GCP Secret Manager injection + rotation | Wire Secret Manager at deploy; adopt `kid`/asymmetric JWT (E2) for rotation. |
+| E4 | Key rotation policy | SP 800‑57; A.8.24 | ❌ | Define rotation for JWT keys, DB creds, gateway keys, FCM service account; support overlapping `kid`. |
+| E5 | CSPRNG for codes/tokens | CWE‑330/338 | ✅ `secrets.randbelow` for OTP, `uuid4` ids | Keep; ensure OTP entropy adequate (consider 6‑digit). |
+
+## F. Input Validation, Output Encoding & Injection
+*(OWASP MASVS‑CODE, Mobile M4; API8; ASVS V5; NIST SI‑10; ISO A.8.28; CIS 16; CWE‑89/79/20/78/611/94)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| F1 | Parameterized DB queries (no SQLi) | **CWE‑89**; SI‑10 | ✅ asyncpg parameter binding throughout (no string‑built SQL) | Keep; ban f‑string SQL in review; add a lint/CI check. |
+| F2 | Server‑side schema validation of all input | ASVS V5.1; M4; API8 | ✅ Pydantic models on every endpoint | Add bounds (amount>0 exists), length caps, enum checks on free‑text (kind/type already enum‑checked). |
+| F3 | Output encoding / no injection into logs, PDFs, deep links | CWE‑79/117 | 🟡 | Encode user text in any generated PDF/HTML; sanitize before logging (also A2). |
+| F4 | File‑upload validation (docs, screenshots) | ASVS V12; CWE‑434 | ✅ `file_validation.py`: **magic‑byte allow‑list** (PDF/PNG/JPEG/GIF/WEBP/DWG/DXF), rejects HTML/SVG‑script/executables/empty, derives a **safe content‑type** (never the uploader's), sanitises filenames, 25 MB cap, random object names (P1‑10, verified) | Add AV/malware scanning on the pipeline when storage is live. |
+| F5 | Deep‑link / intent input treated as untrusted | MASVS‑PLATFORM; M4 | ❌ | Validate all deep‑link params server‑side; don't act on `data.type` from push without re‑authZ. |
+
+## G. Mobile Platform Hardening (Android + iOS)
+*(OWASP MASVS‑PLATFORM, Mobile M8; NIST SP 800‑163/124; ISO A.8.9; CWE‑926/927/200)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| G1 | Minimize exported components; protect IPC | MASVS‑PLATFORM‑1; CWE‑926 | 🟡 documented in `MOBILE_HARDENING.md` (P1‑12) | Set `android:exported=false` except the launcher at `flutter create`. |
+| G2 | Disable Android backup of app data | MASVS‑STORAGE; M8 | 🟡 `allowBackup=false` + data‑extraction rules documented (P1‑12) | Apply in the manifest; exclude the token store. |
+| G3 | Network Security Config | MASVS‑NETWORK; M5 | 🟡 full `network_security_config.xml` (no cleartext, no user CAs, `<pin-set>`) documented in `mobile/NETWORK_SECURITY.md` | Drop it into `android/app/src/main/res/xml/` + reference in the manifest at `flutter create` time. |
+| G4 | App integrity / anti‑fraud attestation | 800‑163; M7 | 🟡 **backend App Check gate built + verified** (`backend/app_check.py`: RS256 JWKS verify, aud/iss/exp pinned, fail‑closed, env‑gated `APP_CHECK_ENABLED`) and wired onto OTP request/verify + login; `ApiClient` sends `X-Firebase-AppCheck` | Enable Play Integrity/App Attest providers in Firebase; init App Check in each app; flip `APP_CHECK_ENABLED=1` once builds send tokens. |
+| G5 | Root/jailbreak & emulator/hook detection | MASVS‑RESILIENCE; M7 | 🟡 approach documented (`MOBILE_HARDENING.md`): detect → **degrade + step‑up** on high‑risk actions rather than hard‑block (P1‑12) | Add a detection package; wire the step‑up gate. |
+| G6 | Tapjacking / overlay protection | MASVS‑PLATFORM; CWE‑1021 | 🟡 `ij_core.TapGuard` marks sensitive controls; native `filterTouchesWhenObscured` + FLAG_SECURE recipe in `MOBILE_HARDENING.md` | Set `filterTouchesWhenObscured` on the app view; wrap pay/approve/accept buttons in `TapGuard`. |
+| G7 | Secure WebViews (if any) | MASVS‑PLATFORM; CWE‑749 | N/A now | If added: disable JS unless needed, no `file://`/universal access, validate URLs. |
+| G8 | Minimum OS version & patch baseline | 800‑124; A.8.8 | 🟡 minSdk per Flutter default | Set `minSdkVersion ≥ 24` (26+ preferred); drop known‑vulnerable OS versions. |
+| G9 | Least‑privilege app permissions | A.8.9; CWE‑250 | 🟡 | Request only needed permissions (camera for scan, notifications); justify each; runtime prompts. |
+
+## H. Binary Protection / Anti‑Tampering / Resilience
+*(OWASP MASVS‑RESILIENCE, Mobile M7; NIST SA‑15; ISO A.8.28/A.8.31; CWE‑656)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| H1 | Code shrinking + obfuscation | MASVS‑RESILIENCE‑3; M7 | 🟡 R8/ProGuard + `--obfuscate --split‑debug‑info` build recipe documented (P1‑12) | Enable in the release build config. |
+| H2 | Anti‑debugging / anti‑tamper checks | MASVS‑RESILIENCE‑1/2; M7 | 🟡 signature/installer verification + root detection guidance (P1‑12) | Add checksum/signature verify; pair with G4/G5. |
+| H3 | No secrets/keys hard‑coded in the binary | M1/M10; CWE‑798 | ✅ (config via `--dart‑define`; no keys in code; `firebase_options` are public IDs) | Keep; never embed API secrets/signing keys in the app. |
+| H4 | Certificate‑pin + attestation for critical flows | M7 | 🟡 pinning hook (D2) + App Check gate (G4) in place and verified; step‑up already gates payment/approval (P1‑9) | Turn on pins + `APP_CHECK_ENABLED` in prod. |
+
+## I. Backend / API Hardening
+*(OWASP API4/API8/API9; ASVS V14; NIST SC‑5/CM‑6/CM‑7; ISO A.8.9/A.8.20/A.8.27; CIS 4/12/13; CWE‑770/16/1188)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| I1 | Global rate limiting / quota (anti‑DoS) | **API4**; SC‑5; CWE‑770 | ❌ | Add gateway/app rate limits per IP+identity; body‑size caps; pagination caps (some `to_list` caps exist). |
+| I2 | WAF / DDoS protection at the edge | SC‑5; CIS 13 | ❌ | Front with Cloud Armor/WAF; bot protection on auth & import endpoints. |
+| I3 | Secure config / hardened defaults | **API8**; CM‑6/CM‑7 | 🟡 | Disable `/docs` (OpenAPI) in prod or auth‑gate it; remove server banners; run as non‑root; read‑only FS. |
+| I4 | API inventory & versioning | **API9**; CM‑8 | 🟡 contract documented (`API_CONTRACT.md`) | Version the API; retire/monitor old versions; no undocumented/debug routes in prod. |
+| I5 | Least‑privilege DB account | AC‑6; CIS 5; CWE‑250 | ✅ `RUN_MIGRATIONS=0` runs the app with **no DDL**; `db/roles.sql` defines ij_app (DML) / ij_migrate (DDL) / ij_readonly; `migrate.py` applies migrations separately | Set the prod DSN to `ij_app`; run `migrate.py` as `ij_migrate` at deploy. |
+| I6 | Idempotency & replay protection | API6 | ✅ booking (per‑lead), scans (per part/station/stage) | Extend to all state‑changing POSTs that can be retried; add idempotency keys on payments. |
+| I7 | Safe error handling (no stack traces/PII to client) | ASVS V7; CWE‑209 | 🟡 FastAPI detail messages | Ensure 500s return generic messages; log detail server‑side only. |
+| I8 | SSRF protection on outbound calls | **API7**; CWE‑918 | 🟡 outbound to FCM/gateway/storage | Allow‑list outbound hosts; no user‑controlled URLs fetched server‑side. |
+
+## J. Logging, Monitoring & Audit
+*(OWASP ASVS V7; Mobile M8; NIST AU‑2/AU‑6/AU‑9/AU‑12, SI‑4; ISO A.8.15/A.8.16; CIS 8; CWE‑778/532/117)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| J1 | Audit log of security‑relevant actions | **AU‑2/AU‑12**; A.8.15; CIS 8 | ✅ `audit_log` (login, RBAC actions, payments, estimates, client actions, push) | Ensure logins/failures, MFA events, role changes, privilege use, exports are all captured. |
+| J2 | Tamper‑resistant / append‑only audit | **AU‑9**; A.8.15; CWE‑778 | 🟡 **hash‑chained** entries (each row's `hash` = SHA‑256 over its content + the prior `hash`); `GET /api/audit/verify-chain` re‑derives the chain and flags any deleted/edited row (verified). Stored in the app DB | Also ship to an external write‑once/SIEM sink; restrict who can read/delete. |
+| J3 | No secrets/PII in logs | AU‑9; CWE‑532 | ✅ OTP codes gated to dev (`OTP_DEBUG_LOG`); prod logs a masked line | Keep redacting tokens/PII everywhere; add a log‑scrub review to CI. |
+| J4 | Monitoring, alerting & anomaly detection | SI‑4; DE.CM (CSF); CIS 13 | 🟡 signal list + alert routing specified in `BACKUP_DR.md` §5 (login‑fail/OTP/MFA bursts, privileged events, refunds, webhook rejects) | Wire to Cloud Monitoring/Logging in prod. |
+| J5 | Time sync & correlation ids | AU‑8 | 🟡 UTC ISO timestamps | Add request/correlation ids; NTP on hosts. |
+
+## K. Secrets & Configuration Management
+*(OWASP API8; NIST CM‑6/SA‑10/SC‑12; ISO A.8.9/A.8.24; CIS 4/16; CWE‑798/16)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| K1 | Central secrets manager | SC‑12; A.8.24 | 🟡 env vars | GCP Secret Manager/Vault; inject at runtime; audit access; auto‑rotate. |
+| K2 | Separate config per environment | CM‑6 | 🟡 `--dart‑define`, `.env` | Distinct secrets per dev/stage/prod; never share prod secrets with dev/CI. |
+| K3 | `.gitignore` for secrets & no secret commits | CWE‑798; CIS 4 | ✅ `.env`/native keys ignored; **gitleaks in CI** (`.github/workflows/secret-scan.yml` + `.gitleaks.toml`); verified no keys tracked | Enable GitHub secret scanning + push protection on the repo. |
+
+## L. Supply Chain / Dependency Security
+*(OWASP Mobile M2; ASVS V14.2; NIST SR‑3/SA‑12, 800‑161; ISO A.5.19‑A.5.23/A.8.30; CIS 2/16; CWE‑1104/1357)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| L1 | Pin & vet dependencies (pub, pip) | **M2**; A.8.30 | 🟡 versioned pubspec/requirements | Commit lockfiles; pin ranges; review new deps. |
+| L2 | SCA / vulnerability scanning of deps | SR‑3; CIS 7/16 | ✅ **pip‑audit** (Python, no ignore list) + **`dart pub outdated`/osv‑scanner** (Flutter) + **CycloneDX SBOM** artifact in CI (`security-ci.yml`). See `SECURITY_CI.md` | — |
+| L3 | Verify plugin/SDK provenance (FCM, scanner, Razorpay) | M2; SR‑4 | 🟡 **CycloneDX SBOM** generated per build (`security-ci.yml` → `sbom`) | Use official SDKs only; verify signatures/checksums; retain SBOM per release. |
+| L4 | Build pipeline integrity | SA‑10; SLSA | ❌ | Signed, reproducible CI builds; protected branches; no third‑party build steps handling secrets. |
+
+## M. Privacy & Data Protection
+*(OWASP MASVS‑PRIVACY, Mobile M6; NIST Privacy Framework; ISO 27701/27018/29100; **India DPDP Act 2023**; GDPR‑equivalent; CWE‑359)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| M1 | Lawful basis + consent capture | DPDP §6; 27701 | 🟡 **consent ledger** (`consents` table + `POST/GET /client/me/consent`): append‑only grant/withdraw per purpose (data_processing / marketing / whatsapp_updates), policy‑versioned, audited (P1‑11, verified) | Surface the consent prompt in onboarding UI; gate marketing sends on it. |
+| M2 | Data minimization & purpose limitation | MASVS‑PRIVACY; DPDP §8 | 🟡 | Collect only needed PII; avoid storing extra Infurnia/Meta fields you don't use. |
+| M3 | Data‑subject rights (access/correct/erase) | DPDP §11‑13; 27701 | ✅ **export** (`GET /client/me/export`), **erasure** (`/client/me/erasure-request` → staff `POST /customers/{id}/erase`: anonymizes customer + leads, revokes sessions, retains tax records per §8(7), step‑up + audited), correction via profile edits (P1‑11, verified 20/20) | — |
+| M4 | Privacy policy + in‑app disclosures + store data‑safety | M6; Play Data Safety | 🟡 policy/label guidance in `DATA_RETENTION.md` §5 | Publish the policy; complete Play Data Safety & Apple Privacy labels. |
+| M5 | Breach notification readiness | DPDP §8(6); CSF RS | 🟡 **runbook** `docs/security/INCIDENT_RESPONSE.md` (detect→contain→assess→notify DPB + principals→recover→review, with templates) | Fill in real roles/contacts; run a tabletop drill. |
+| M6 | PII in transit/at rest protected + access‑logged | 27018; SC‑28 | 🟡 PII access (export/erase/doc download) is audited | Combine with C5/C6/J1; restrict who can query PII; column‑level encryption. |
+| M7 | Third‑party/processor agreements (FCM, Infurnia, gateway, cloud) | DPDP §8(2); A.5.19 | 🟡 processor register + DPA checklist in `DATA_RETENTION.md` §4 | Sign DPAs with each processor; record cross‑border transfers. |
+
+## N. Payments Security
+*(OWASP API6; PCI‑DSS‑aligned (UPI/cards); NIST SC‑8; ISO A.5.14; CWE‑840/799)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| N1 | Server computes & verifies amounts | API6 | ✅ 10% booking & totals server‑side | Keep. |
+| N2 | Gateway signature verification on callbacks | API10 | ✅ **enforced on the live path** — HMAC‑SHA256 verify, unsigned/bad rejected (400), replayed events idempotent (`gateway_events` ledger), amount‑mismatch rejected (P1‑13, verified) | — |
+| N3 | Weak manual‑UPI proof (screenshot) is fraud‑prone | API6; CWE‑840 | 🟡 manual verify is four‑eyes + step‑up (P1‑9); gateway path is now signature‑verified (P1‑13) | Prefer gateway/UPI‑intent; treat screenshots as provisional. |
+| N4 | Never store card/PSP secrets in app or DB | PCI; CWE‑312 | ✅ no card data stored | Keep tokenized refs only; PSP holds sensitive data. |
+| N5 | Segregate payment approval from initiation | SoD; API6 | ✅ record≠confirm (P1‑9); **refunds** need a dedicated `payments.refund` (finance/CEO only, never Sales/Admin) + four‑eyes (refunder≠confirmer) + step‑up; large‑payment confirm forces step‑up ≥ `PAYMENT_STEP_UP_THRESHOLD` (P1‑13, verified) | — |
+
+## O. Resilience, Backup & Incident Response
+*(NIST CP‑9/CP‑10, IR‑4/IR‑8; ISO A.5.24‑A.5.30/A.8.13/A.8.14; CSF RS/RC; CIS 11)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| O1 | Encrypted, tested backups | CP‑9; A.8.13; CIS 11 | 🟡 backup plan (PITR + nightly dump + object versioning + immutable/offline copy) + restore procedure + quarterly drill in `BACKUP_DR.md` | Enable on Cloud SQL/bucket in prod; record a test restore. |
+| O2 | Incident response plan | **IR‑8**; A.5.24‑A.5.28 | ✅ **`INCIDENT_RESPONSE.md`** — roles, detect→contain→assess→**DPDP §8(6) notify**→recover→review, with templates (P1‑11) | Fill real contacts; run a tabletop. |
+| O3 | Business continuity / DR | CP‑10; A.5.29/A.5.30 | 🟡 RPO/RTO targets + DR scenarios + failover runbook in `BACKUP_DR.md` | Implement multi‑region failover in prod. |
+| O4 | Logging retention for forensics | AU‑11; A.8.15 | 🟡 retention schedule in `DATA_RETENTION.md`; forensics guidance in `INCIDENT_RESPONSE.md` | Ship to a write‑once sink (J2). |
+
+## P. Secure SDLC & Vulnerability Management
+*(OWASP ASVS V1/SAMM; NIST SSDF SP 800‑218, SA‑11/SA‑15/RA‑5; ISO A.8.25‑A.8.29; CIS 16; CWE Top 25 program)*
+
+| # | Control | Standards | Status | Recommendation |
+|---|---|---|---|---|
+| P1 | SAST / secret scanning in CI | SA‑11; CIS 16 | ✅ **bandit** + **semgrep** (offline rules + OWASP packs) SAST + **gitleaks** secrets + **pip‑audit**/**dart pub outdated** SCA + **CycloneDX SBOM** in CI, blocking on new findings (`security-ci.yml`, `secret-scan.yml`) | — |
+| P2 | DAST / API fuzzing | SA‑11 | 🟡 **automated authZ suite** (`backend/tests/test_authz.py`, in CI with a Postgres service): BOLA (cross‑customer), BFLA (low‑priv staff on privileged fns), dual‑BFF rejection, unauth — 15 checks | Add ZAP/API fuzzing against a staging deploy. |
+| P3 | Periodic pentest + MASTG mobile test | 800‑163; A.8.29 | ❌ | Independent pentest of both apps + API before GA; retest after major changes. |
+| P4 | Threat modeling | SA‑15; A.8.25 | ✅ **`THREAT_MODEL.md`** — STRIDE across both apps + backend, assets, trust boundaries (dual‑BFF), each threat mapped to its control, residual‑risk register (P2) | Revisit on major changes. |
+| P5 | Security requirements & training | A.6.3/A.8.28 | ❌ | Secure‑coding guidelines; developer security training; this doc as the requirements baseline. |
+
+---
+
+# Part 2 — Coverage by standard
+
+### OWASP
+
+**MASVS v2 (mobile)** — target **MASVS‑L2 + MASVS‑R** (has payments/PII):
+
+| Category | Status | Key gaps |
+|---|---|---|
+| MASVS‑STORAGE | 🟡 | keyboard hygiene done (C4); screenshot/backup in code+docs, apply manifest flags (C2/C3) |
+| MASVS‑CRYPTO | ✅/🟡 | JWT → asymmetric + rotation (E2/E4) |
+| MASVS‑AUTH | ✅/🟡 | ✅ MFA (TOTP + **passkeys/FIDO2**), token revocation, refresh rotation, login lockout (A3/A7/A8); remaining: per‑token reuse detection (A6) |
+| MASVS‑NETWORK | 🟡 | HTTPS enforced; pinning hook + Android `<pin-set>` scaffolded — supply prod pins (D1‑D2) |
+| MASVS‑PLATFORM | ❌ | exported components, deep links, tapjacking (G1/G6/F5) |
+| MASVS‑CODE | 🟡 | dep scanning, input bounds (F2/L2) |
+| MASVS‑RESILIENCE | 🟡 | backend App Check gate done (G4); remaining: obfuscation, root/tamper (G5/H1) |
+| MASVS‑PRIVACY | 🟡 | consent ledger + DSR export/erasure done (M1/M3); remaining: onboarding UI, data‑safety labels (M2/M4) |
+
+**Mobile Top 10 (2024):** M1 🟡(A2/H3) · M2 ❌(L*) · **M3 🟡→❌ auth/MFA** · M4 🟡(F*) · **M5 🟡 comms/pinning** · M6 ❌ privacy · **M7 ❌ binary protections** · M8 🟡 config · M9 🟡 storage · M10 ✅/🟡 crypto.
+
+**API Security Top 10 (2023):** **API1 BOLA ✅** · API2 🟡(MFA/rotation) · API3 🟡 · **API4 ❌ rate‑limit** · API5 ✅ · API6 🟡 · API7 🟡 · API8 🟡 · API9 🟡 · API10 🟡.
+
+**ASVS:** currently ~**L1** with notable L2 gaps (V2/V3 auth‑session, V9 pinning, V7 logging). **Target L2** for a consumer PII + payments app.
+
+### NIST
+
+- **SP 800‑63B (identity):** customers ≈ **AAL1** (single possession factor OTP); **staff below AAL1** (password only). **Target AAL2** (MFA) for staff, AAL2 step‑up for customer payments. (See Part 5.)
+- **SP 800‑53r5 families in scope:** **AC** (access control ✅ — Part 4/P1‑9), **IA** (auth/MFA ✅ — Part 5/P1‑6‑7), **AU** (audit ✅/🟡), **SC** (transport/crypto 🟡), **SI** (input ✅/monitoring 🟡), **CM** (config 🟡), **CP/IR** (backup/IR 🟡 — plans written, prod wiring pending), **SR** (supply chain 🟡 — SAST/SCA in CI), **RA** (RA‑5 scanning 🟡 — pip‑audit/bandit).
+- **SP 800‑163 (app vetting)** / **800‑124 (mobile device sec):** pre‑release app vetting + MDM/EMM for staff devices ❌.
+- **CSF 2.0:** GV 🟡 · ID 🟡 · **PR** (protect) 🟡 · **DE** (detect/monitoring) ❌ · **RS/RC** (respond/recover) ❌.
+
+### ISO/IEC
+
+- **27001:2022 Annex A** — Organizational (A.5): access control/supplier/IR partly; **People (A.6):** training ❌; **Physical (A.7):** cloud‑provider inherited; **Technological (A.8):** authz/crypto/logging 🟡, backup/secure‑dev/vuln‑mgmt ❌.
+- **27017 (cloud) / 27018 (PII in cloud):** enable CMEK, access logging, tenant isolation 🟡.
+- **27701 (PIMS) + India DPDP Act 2023:** consent, DSR, breach notice, processor DPAs — mostly ❌ (Part 1‑M). **This is legally required for an Indian consumer app.**
+
+### SANS
+
+- **CIS Controls v8 (18):** 1‑2 inventory 🟡 · 3 data protection 🟡 · **4 secure config 🟡** · **5‑6 account/access mgmt 🟡→ Part 4/5** · 7 vuln mgmt ❌ · **8 audit logs ✅/🟡** · 10 malware (uploads) ❌ · 11 recovery ❌ · 12‑13 network/monitoring ❌ · 14 awareness ❌ · 16 app‑sec 🟡 · 18 pentest ❌.
+- **CWE Top 25:** strong on **CWE‑89 (SQLi ✅)** and **CWE‑639 (IDOR ✅)**; open items **CWE‑287/306 (auth/MFA)**, **CWE‑307 (brute force)**, **CWE‑352 (CSRF — mobile uses Bearer, low, but web CRM must use tokens/anti‑CSRF)**, **CWE‑532 (secrets in logs)**, **CWE‑798 (secrets mgmt)**, **CWE‑295 (cert validation/pinning)**.
+
+---
+
+# Part 3 — Prioritized remediation roadmap
+
+**P0 — do immediately (cheap, high impact):**
+1. **Stop logging OTP codes / any secret** outside non‑prod (A2/J3).
+2. **Enforce HTTPS** in prod builds + Android network‑security‑config; never ship the cert‑bypass ops note (D1/D3).
+3. **Login brute‑force lockout + basic rate limiting** on `/auth/login` and OTP request (A3/A4/I1).
+4. **Least‑privilege DB role** in prod (drop `postgres` superuser) (I5).
+5. **Secrets → GCP Secret Manager**; rotate `JWT_SECRET`/DB creds; enable secret scanning (E3/K1).
+
+**P1 — before general availability:**
+6. ✅ **MFA for staff** — TOTP (P1‑6) **+ WebAuthn/FIDO2 passkeys** (phishing‑resistant, verified 10/10); remaining: enforce enrollment + ship the platform‑authenticator UI.
+7. ✅ **Refresh‑token rotation + revocation**, immediate deactivation (A6‑A8/B8) — `token_version` kills live tokens on logout / credential change / deactivation / role change; refresh rotates both tokens (verified 25/25).
+8. 🟡 **TLS pinning + Firebase App Check + Play Integrity/App Attest** (D2/G4) — backend App Check gate built + verified (RS256/JWKS, fail‑closed, env‑gated), `ApiClient` pinning + attestation‑header hooks added, Android `<pin-set>` documented. Remaining: real cert pins + Firebase provider config, then flip the flags on.
+9. ✅ **Segregation of privileges** (Part 4) — payment record/confirm/refund split, `accounts` + `system_admin` roles, admin stripped of money, four‑eyes on approvals/booking/refund, step‑up wiring, CEO break‑glass alert, hash‑chained audit (all verified).
+10. ✅ **Signed URLs** for documents + upload validation (C7/F4) — 5‑min capability tokens (staff + customer), no `storage_path` leak, `nosniff`/attachment downloads, magic‑byte upload allow‑list with safe content‑type (verified 20/20). Remaining: private bucket + AV scan when live.
+11. 🟡 **DPDP compliance** (M1‑M7) — consent ledger + data‑subject export/erasure implemented & verified (20/20); breach runbook (`INCIDENT_RESPONSE.md`) + retention/classification + processor register (`DATA_RETENTION.md`) written. Remaining: publish privacy policy, onboarding consent UI, sign processor DPAs, run a breach drill.
+12. 🟡 **Screenshot/backup/clipboard** hardening; obfuscation; root/tamper (C2‑C4/G/H) — keyboard hygiene applied, `SecureScreen` on OTP/MFA screens; manifest/build/root‑detection recipes in `MOBILE_HARDENING.md`. Remaining: wire the native FLAG_SECURE handler + manifest flags + obfuscated release build.
+13. ✅ **Razorpay signed‑webhook** live path + dual‑control on refunds/large payments (N2/N5/D6) — HMAC‑verified, idempotent, amount‑matched webhook; refund needs a dedicated finance permission + four‑eyes + step‑up (verified 15/15). Remaining: gateway order‑creation (needs Razorpay SDK + credentials) + IP allow‑list.
+14. ✅ **Dependency scanning + SAST/secret scan in CI** (L2/P1) — bandit + **semgrep** + pip‑audit + **Flutter dep scan** + **CycloneDX SBOM** + gitleaks, all wired and blocking (`security-ci.yml`); fastapi/starlette upgraded to clear all 8 CVEs. Remaining: independent pentest before launch.
+
+**P2 — mature the program:**
+15. 🟡 Monitoring/alerting + SIEM, anomaly detection (J4) — signals + routing specified in `BACKUP_DR.md` §5; wire in prod.
+16. 🟡 Backup/restore tests, IR & DR plans (O1‑O3) — **IR plan done** (`INCIDENT_RESPONSE.md`); backup/DR plan + restore procedure + drills in `BACKUP_DR.md`; enable on prod infra.
+17. ✅ Field‑level PII encryption / classification & retention (C6/C8) — retention/classification done (`DATA_RETENTION.md`); **PII encryption implemented** (`pii_crypto.py` + shim: AES‑GCM + blind index, env‑gated, `migrate_pii.py`; verified 30 on / 40 off). Remaining: prod **KMS** key + extend to leads/staff PII.
+18. 🟡 Threat models, security training, periodic re‑test (P3‑P5) — **STRIDE threat model done** (`THREAT_MODEL.md`); remaining: independent pentest + MASTG before GA, staff training.
+
+---
+
+# Part 4 — Segregation & Restriction of Privileges  *(RECOMMENDATION)*
+
+*(NIST 800‑53 **AC‑2, AC‑5 (Separation of Duties), AC‑6 (Least Privilege), AC‑6(1/2/5), IA‑2(1)**; ISO **A.5.3 (SoD), A.5.15, A.5.16, A.5.18, A.8.2 (privileged access)**; CIS **5 & 6**; OWASP **API5 BFLA**; SOX‑style controls.)*
+
+Three principles drive this: **Least Privilege** (each identity gets the minimum
+it needs), **Separation of Duties** (no single person can execute a
+risk‑bearing transaction end‑to‑end), and **Privileged Access Management** (admin
+power is rare, named, time‑boxed, and watched).
+
+## 4.1 Current state — what the RBAC already does well
+
+The 8‑role / 28‑permission model (`backend/permissions.py`) already encodes real
+segregation, which is a strong base:
+
+| Duty pair | Separated today? |
+|---|---|
+| Create estimate (`estimates.create`, Sales) vs **approve** (`estimates.approve`, PM/MH) | ✅ different roles |
+| Submit expense (`expenses.submit`, Site Mgr) vs **approve** (`expenses.approve`, PM/MH) | ✅ different roles |
+| Raise ticket (Site Mgr) vs resolve (Prod. Eng.) | ✅ |
+| Upload/distribute campaign leads (MH) vs work them (Sales) | ✅ |
+| Hard‑delete users (`users.delete`) | ✅ CEO‑only |
+
+## 4.2 Toxic combinations & over‑privilege — status
+
+| # | Finding | Why it's a risk | Status / resolution |
+|---|---|---|---|
+| SoD‑1 | **`payments.manage` is held by Sales** (they record/verify the booking payment) | The person who closes the sale also confirms the money → fraud / unverified activation | ✅ **FIXED (P1‑9).** Money is split into `payments.record` (Sales — enter only) and `payments.confirm` (Finance/PM/CEO — verify/mark‑Paid). Booking **activation now fires only on confirm**, which requires `payments.confirm`; Sales can no longer confirm. Legacy `payments.manage` kept only as a back‑compat umbrella (no built‑in holds it). *(Verified.)* |
+| SoD‑2 | **`admin` = all‑but‑delete** and **`ceo` = everything** — single logins that can manage users **and** approve estimates **and** verify payments | One compromised/rogue admin can create a user, grant itself rights, approve its own estimate and confirm payment — no second pair of eyes | ✅ **FIXED (P1‑9 + follow‑up).** `admin` lost `payments.confirm`/`refund` + the money umbrella; a dedicated **`system_admin`** role does pure IT (users/roles/automations/notifications/audit) with **no** money and **no** business approvals; four‑eyes blocks self‑approval; **CEO login is break‑glass‑alerted** (`auth.break_glass`). *(Verified.)* |
+| SoD‑3 | **Self‑approval possible** for `admin`/`ceo` (they hold both `estimates.create`‑equivalent reach and `estimates.approve`) | Maker = checker | ✅ **FIXED (P1‑9).** `deny_self_action(creator ≠ actor)` enforced in code for **estimate approve, expense approve, payment confirm, and booking verification** — applies to everyone incl. admin/CEO. *(Verified.)* |
+| SoD‑4 | **Shared‑looking accounts** (`ceo@…`, `admin@…` seeded) | Shared creds break accountability & audit | 🟡 startup **warns** on generic/shared active logins; CEO super‑account login is **alerted** (break‑glass). Remaining: rename to named individual accounts (policy). |
+| SoD‑5 | **`oversight.silent`** (Marketing Head silent monitoring) | Covert access to others' work — privacy & abuse concern | 🟡 Keep least‑privilege; **log every use** to the immutable audit; review periodically; disclose in policy. |
+| SoD‑6 | App connects to Postgres as **superuser** (dev) | DB compromise = total | ✅ **FIXED (P0‑4).** Least‑privilege DB roles (`ij_app`/`ij_migrate`/`ij_readonly`), see 4.4 / `db/roles.sql`. |
+
+## 4.3 Recommended target — separation of duties matrix
+
+Define **incompatible duty sets** (a single identity must never hold two in the
+same set) and enforce them when composing roles:
+
+| Duty set | Duty A | Duty B (incompatible) |
+|---|---|---|
+| Estimates | create/edit | approve |
+| Expenses | submit | approve |
+| Payments | initiate/record | verify/reconcile · refund |
+| Identity | request access | grant access / manage roles |
+| Administration | manage users & roles & settings | approve business transactions / verify payments |
+| Audit | perform actions | administer/erase the audit log |
+
+Concrete role adjustments:
+- ✅ **Added an `accounts` (Finance) role** (`payments.record` + `payments.confirm` + `expenses.approve` + financial analytics) — distinct from Sales and from system admin *(P1‑9)*.
+- ✅ **Split `admin`**: `admin` lost money‑confirm/refund + umbrella *(P1‑9)*, **and** a dedicated **`system_admin`** role now does pure IT with no business approvals or money — the intended daily‑driver so no login holds both.
+- ✅ **`ceo`** every login fires an `auth.break_glass` alert (monitor it, keep the credential sealed/emergency‑only). Four‑eyes stops the CEO self‑approving *(P1‑9)*.
+- ✅ **Enforce `approver ≠ creator`** in the estimate/expense/payment/booking transitions *(P1‑9, verified)*.
+- ✅ **Step‑up wired** onto payment‑confirm, estimate/expense approve, booking verify, user role‑change and hard‑delete — gated by `STEP_UP_ENABLED` so it switches on once staff MFA enrolment (P1‑6) is universal *(P1‑9, verified)*.
+
+## 4.4 Restriction of privileged accounts (PAM)
+
+| Control | Recommendation | Standard |
+|---|---|---|
+| **Named, individual privileged accounts** | No shared admin/CEO logins; one human ↔ one account | AC‑2; A.5.16 |
+| **Separate admin identity from daily use** | Admins do normal work with a normal role; switch to a distinct privileged account only for admin tasks | **AC‑6(5)**; CIS 5.4 |
+| **Break‑glass CEO/super‑admin** | Sealed credential, hardware‑MFA, used only in emergencies, **auto‑alert on every login/action**, short forced session, reviewed after use | AC‑6(2); A.8.2 |
+| **Just‑in‑Time elevation** | Request → second‑person approval → **time‑boxed** grant that auto‑expires; no standing super‑admin | AC‑6(1); CIS 6.8 |
+| **Four‑eyes on the most sensitive ops** | ✅ approver ≠ creator on estimate/expense/payment/booking/**refund**; `users.delete` + role‑change + refund require step‑up (P1‑9/P1‑13). Bulk export still to add | AC‑5; A.5.3 |
+| **Step‑up MFA for admin actions** | ✅ `assert_step_up`/`require_step_up` wired onto payment‑confirm, approvals, booking verify, role‑change, hard‑delete; `STEP_UP_ENABLED` flips it on post‑MFA‑rollout (P1‑9) | IA‑2(1); AC‑6 |
+| **Privileged‑action auditing + alerting** | Every privileged/role/permission change is logged to the immutable audit and alerts security | AU‑2/AU‑12; A.8.15 |
+| **Immediate deprovision (leaver)** | ✅ deactivation revokes all tokens at once via `token_version` (A7/B8); keys rotated | AC‑2(3); A.5.18 |
+| **Service accounts are non‑human & least‑priv** | backend→DB, backend→FCM, webhook verifiers: no interactive login, scoped, rotated | AC‑6; A.8.2 |
+
+## 4.5 Database privilege separation
+
+| Role | Rights | Used by |
+|---|---|---|
+| `ij_app` | `SELECT/INSERT/UPDATE/DELETE` on the app schema only | the running backend |
+| `ij_migrate` | `DDL` (create/alter) | migrations at deploy only |
+| `ij_readonly` | `SELECT` on reporting views | analytics/BI |
+| break‑glass DBA | full | emergencies only, audited |
+
+The app must **never** run as `postgres`/superuser in production (currently does in dev).
+
+## 4.6 Access lifecycle
+
+- **Joiner/Mover/Leaver:** provisioning requires approval; role changes on transfer; **immediate** revoke on exit.
+- **Recertification:** quarterly access review — owners re‑attest each person's role; auto‑flag dormant/over‑privileged accounts (`reports_to`/`created_by` already give the graph to drive this).
+- **Deny‑by‑default:** new endpoints require an explicit gate; add a CI test asserting every route declares a permission.
+- **Everything privileged is logged**, and privilege escalation raises an alert (J4).
+
+---
+
+# Part 5 — Two‑Factor / Multi‑Factor Authentication  *(RECOMMENDATION)*
+
+*(NIST **SP 800‑63B (AAL2), §5.1 authenticators, §5.2.2 rate‑limiting, §5.2.8 replay resistance**; OWASP **MASVS‑AUTH‑2/3**, **ASVS V2.8 (OTP) / V2.9 (crypto MFA)**, **API2**; ISO **A.5.17, A.8.5**; CIS **6.3–6.5**; CWE‑287/308/1390.)*
+
+MFA = at least **two of**: **knowledge** (password/PIN), **possession** (device,
+TOTP, security key), **inherence** (biometric). NIST **AAL2 requires MFA** and is
+the right bar for a consumer‑PII + payments system.
+
+## 5.1 Current state vs target
+
+| Identity | Today | AAL | Target |
+|---|---|---|---|
+| **Employee** (Company App) | password only | **below AAL1** (single knowledge factor, no lockout) | **AAL2 — MFA mandatory**; phishing‑resistant for admins |
+| **Customer** (Client App) | phone OTP (passwordless) | ~AAL1 (single possession factor) | AAL1 login OK; **AAL2 step‑up** for payments/acceptance |
+
+**Employee MFA is the single most important auth gap in the system.**
+
+## 5.2 Employees (Company App) — mandatory MFA
+
+| Recommendation | Detail | Standard |
+|---|---|---|
+| **TOTP as the default second factor** | RFC 6238 authenticator app (Google/Microsoft Authenticator, Authy). Server issues a per‑user secret (encrypted at rest), QR enrollment, verify; 30s step, ±1 tolerance, **track last‑used step to block replay**, rate‑limit + lockout (reuse the OTP policy) | 800‑63B §5.1.5; ASVS V2.8; A.8.5 |
+| **Phishing‑resistant MFA for admins/CEO/finance** | **FIDO2 / WebAuthn passkeys or hardware security keys** (TOTP is phishable). Require for any privileged/break‑glass account | 800‑63B AAL3‑grade; AC‑6 |
+| **Backup / recovery codes** | 8–10 one‑time codes, **hashed**, single‑use, shown once at enrollment; regenerate invalidates old | 800‑63B §5.1.2 |
+| **Optional push‑approval MFA** | Approve/deny via FCM with **number matching** to resist MFA‑fatigue; never allow unlimited prompts | 800‑63B; anti‑fatigue |
+| **SMS OTP only as last‑resort fallback** | Discouraged (SIM‑swap/interception); **never** for admins; restricted‑only | 800‑63B §5.1.3 (RESTRICTED) |
+| **Enrollment enforcement** | An un‑enrolled staff user gets a **restricted session that can only enroll MFA**; a full token requires MFA. Migration window for existing users | IA‑2; A.5.17 |
+
+## 5.3 Customers (Client App) — second factor for high‑value actions
+
+Phone OTP is fine to *log in*. For **money/commitment** actions, add a second
+factor via **step‑up**:
+
+| Recommendation | Detail |
+|---|---|
+| **Device biometric / PIN step‑up** | Gate **accept‑estimate** and **payment** with `local_auth` (Face/Touch ID or device PIN) — an *inherence/knowledge* factor on the *possession‑bound* registered device = 2 factors for that action |
+| **Migrate OTP to Firebase Phone Auth** | Managed OTP + reCAPTCHA/**App Check** anti‑abuse (already on the roadmap); still single‑factor, so keep the biometric step‑up |
+| **Optional account PIN** | Let customers set a knowledge factor for extra assurance |
+| **Bind the session to the enrolled device** | Tie the customer token to the FCM/device id; re‑verify on a new device |
+
+## 5.4 Step‑up (transaction) authentication matrix
+
+Re‑prompt for a second factor (fresh, short‑lived elevation) before these — even
+within an active session:
+
+| Action | Who | Second factor |
+|---|---|---|
+| Approve estimate / expense | PM / MH / Finance | TOTP (or passkey) |
+| **Verify payment / refund** | Finance | passkey / TOTP + (large ⇒ four‑eyes) |
+| Manage users / roles / settings | system_admin | **passkey** |
+| Break‑glass elevation | CEO/super‑admin | **hardware key** + alert |
+| Export / bulk download PII | any | TOTP |
+| Change MFA / recovery info | self | current MFA |
+| Accept estimate / make payment | customer | biometric/PIN |
+
+## 5.5 Implementation plan (maps to current code)
+
+**Backend (`backend/`):**
+1. `users` gains `mfa_enrolled`, `mfa_secret` (encrypted, not plain), `mfa_type`, `mfa_backup_codes` (hashed). Reuse the proven OTP hygiene (hash, TTL, lockout, cooldown) from `routers/auth.py`/`push.py`.
+2. Endpoints: `POST /auth/mfa/enroll` (secret + otpauth QR), `POST /auth/mfa/activate` (verify first code), **login becomes two‑step** (`/auth/login` → if `mfa_enrolled` return a short *pre‑auth* token → `POST /auth/mfa/verify` → full token), `POST /auth/mfa/step-up` (returns a short‑lived elevation claim), `POST /auth/mfa/recover` (backup code), admin‑assisted reset (identity‑proofed, audited, notifies user).
+3. **JWT claims:** add `amr` (methods used), `aal`, and a step‑up `elevated_until`. Gate privileged endpoints on `aal ≥ 2` and, for step‑up actions, a fresh elevation. Log all MFA events to `audit_log` (`auth.mfa_enrolled/verified/failed/step_up`).
+4. TOTP verify: constant‑time compare, replay‑block last step, throttle + lockout, CSPRNG secret (≥160‑bit).
+
+**Apps (`mobile/`):**
+- **Company App:** MFA **enrollment screen** (show QR/secret), **login MFA‑challenge screen** (after password), **step‑up sheet** for sensitive actions; passkey via platform authenticator for admins.
+- **Client App:** `local_auth` biometric/PIN gate on `accept‑estimate` and payment; optional PIN enrollment. `ij_core` gains `verifyMfa`, `stepUp`, `enrollMfa`.
+
+**Recovery & anti‑abuse:** backup codes; admin reset with proofing + notification; rate‑limit + lockout on all factors; alert on repeated failures/impossible‑travel; "remember this device" (≤30 days, device‑bound) for **non‑privileged** logins only.
+
+## 5.6 Do‑nots
+- Don't accept a second factor of the **same type** as the first (two possession factors ≠ MFA).
+- Don't allow MFA to be silently disabled without current‑MFA re‑auth + notification.
+- Don't rely on SMS for admins; don't send the OTP/secret in logs (see A2/J3).
+- MFA is **not** a substitute for the other controls (TLS pinning, App Check, device binding, rate‑limiting) — defense in depth.
+
+---
+
+*Owner: (assign). Review cadence: quarterly, and after any major feature or incident. This document is the security requirements baseline referenced by Part 3's roadmap.*
+

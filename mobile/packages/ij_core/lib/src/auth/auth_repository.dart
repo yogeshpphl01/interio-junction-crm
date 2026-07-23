@@ -50,20 +50,50 @@ class EmployeeAuthRepository {
   final ApiClient api;
   final TokenStore tokens;
 
-  Future<Session> login(String email, String password) async {
+  Session _session(Map<String, dynamic> u) => Session(
+        id: u['id'] as String,
+        displayName: (u['full_name'] as String?) ?? (u['email'] as String? ?? 'You'),
+        role: u['role'] as String?,
+        raw: u,
+      );
+
+  /// Password login. If MFA is enrolled the backend returns an MFA challenge
+  /// instead of a session; call [verifyMfa] with the second factor to finish.
+  Future<LoginResult> login(String email, String password) async {
     final data = await api.post('/auth/login',
         body: {'email': email, 'password': password}) as Map<String, dynamic>;
+    if (data['mfa_required'] == true) {
+      return LoginResult.mfa(data['mfa_token'] as String);
+    }
     await tokens.save(
       access: data['access_token'] as String,
       refresh: data['refresh_token'] as String?,
     );
-    final u = data['user'] as Map<String, dynamic>;
-    return Session(
-      id: u['id'] as String,
-      displayName: (u['full_name'] as String?) ?? (u['email'] as String? ?? 'You'),
-      role: u['role'] as String?,
-      raw: u,
+    return LoginResult.session(_session(data['user'] as Map<String, dynamic>));
+  }
+
+  /// Complete an MFA login with a TOTP or backup code.
+  Future<Session> verifyMfa(String mfaToken, String code) async {
+    final data = await api.post('/auth/mfa/verify',
+        body: {'mfa_token': mfaToken, 'code': code}) as Map<String, dynamic>;
+    await tokens.save(
+      access: data['access_token'] as String,
+      refresh: data['refresh_token'] as String?,
     );
+    return _session(data['user'] as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> mfaStatus() async =>
+      (await api.get('/auth/mfa/status')) as Map<String, dynamic>;
+
+  /// Begin enrollment: returns {secret, otpauth_uri}.
+  Future<Map<String, dynamic>> mfaEnroll() async =>
+      (await api.post('/auth/mfa/enroll')) as Map<String, dynamic>;
+
+  /// Confirm the first code to enable MFA; returns one-time backup codes.
+  Future<List<String>> mfaActivate(String code) async {
+    final d = await api.post('/auth/mfa/activate', body: {'code': code}) as Map<String, dynamic>;
+    return ((d['backup_codes'] as List?) ?? const []).cast<String>();
   }
 
   Future<void> registerDevice(String fcmToken, {String? platform}) =>

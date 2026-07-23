@@ -30,7 +30,15 @@ PERMISSION_CATALOG = [
     ("leads.assign",        "Assign leads to team members",         "Leads"),
     ("measurements.manage", "Manage site measurements",             "Projects"),
     ("revisions.manage",    "Manage design revisions",              "Projects"),
-    ("payments.manage",     "Manage payments",                      "Projects"),
+    # <sod-payments> Money is split so recording a payment is NEVER the same act
+    #   as confirming it (create-vs-record separation, NIST AC-5 / ISO A.5.3).
+    #   `payments.manage` is retained ONLY as a legacy umbrella for any custom
+    #   role that still holds it (it implies both record + confirm); no built-in
+    #   role is granted it anymore. </sod-payments>
+    ("payments.record",     "Record / enter payments",              "Projects"),
+    ("payments.confirm",    "Confirm & verify payments (finance)",   "Projects"),
+    ("payments.refund",     "Issue payment refunds (finance)",       "Projects"),
+    ("payments.manage",     "Manage payments (legacy: record+confirm)", "Projects"),
     ("documents.upload",    "Upload documents",                     "Projects"),
     ("analytics.company",   "Company-wide analytics",               "Insights"),
     ("scoring.manage",      "Edit lead-scoring weights",            "Insights"),
@@ -66,13 +74,26 @@ _ALL = set(ALL_PERMISSIONS)
 #   relationships are expressed by set-union so the matrix stays the source of
 #   truth (Marketing Head ⊇ Project Manager, Production Engineer ⊇ Designer).
 # </defaults>
-_MANAGER_KEYS = {  # Project Manager
+_MANAGER_KEYS = {  # Project Manager — approves work and CONFIRMS money, but does not create estimates
     "leads.view_all", "leads.edit", "leads.import", "leads.assign", "analytics.company",
-    "estimates.approve", "projects.coordinate", "expenses.approve", "tickets.manage", "chat.access",
+    "estimates.approve", "projects.coordinate", "expenses.approve", "payments.confirm",
+    "tickets.manage", "chat.access",
 }
-_SALES_KEYS = {  # Sales Executive
+_SALES_KEYS = {  # Sales Executive — creates the deal + RECORDS money, but can never CONFIRM it (SoD)
     "leads.edit", "leads.import", "measurements.manage", "revisions.manage",
-    "payments.manage", "documents.upload", "estimates.create", "chat.access",
+    "payments.record", "documents.upload", "estimates.create", "chat.access",
+}
+_ACCOUNTS_KEYS = {  # Finance / Accounts — the money authority: record + confirm + refund + approve expenses
+    "payments.record", "payments.confirm", "payments.refund", "expenses.approve",
+    "analytics.company", "documents.upload", "chat.access",
+}
+# <system-admin> Pure IT administration (SoD-2): manage users/roles/automations/
+#   notifications, view audit + analytics — but NO business approvals, NO money,
+#   NO lead/estimate editing. The intended daily-driver for admins so no single
+#   login holds both system administration AND business super-powers. </system-admin>
+_SYSADMIN_KEYS = {
+    "users.manage", "roles.manage", "automations.manage",
+    "notifications.manage", "audit.view", "analytics.company", "scoring.manage",
 }
 _DESIGNER_KEYS = {"revisions.manage", "documents.upload", "chat.access"}
 _SUPERVISOR_KEYS = {  # Site Manager
@@ -80,12 +101,19 @@ _SUPERVISOR_KEYS = {  # Site Manager
     "tickets.manage", "expenses.submit", "chat.access",
 }
 ROLE_DEFAULTS: dict[str, set] = {
-    "ceo": set(_ALL),                              # everything
-    "admin": _ALL - {"users.delete"},              # everything except hard-delete
+    "ceo": set(_ALL),                              # everything (four-eyes still blocks self-approval)
+    # <split-admin> The system administrator manages users/roles/automations but is
+    #   separated from financial CONFIRMATION and the legacy money umbrella
+    #   (NIST AC-5 duty separation). Admin can still record a payment operationally
+    #   but a second party (Accounts / Manager / CEO) must confirm it. </split-admin>
+    "admin": _ALL - {"users.delete", "payments.confirm", "payments.refund", "payments.manage"},
     # Marketing Head ⊇ Project Manager + campaign upload/distribute + silent oversight.
     "marketing_head": _MANAGER_KEYS | {"leads.upload_excel", "leads.distribute", "oversight.silent"},
     "manager": set(_MANAGER_KEYS),
     "sales": set(_SALES_KEYS),
+    "accounts": set(_ACCOUNTS_KEYS),
+    "system_admin": set(_SYSADMIN_KEYS),
+
     # Production Engineer ⊇ Designer + factory / cut-list / QR / production.
     "production_engineer": _DESIGNER_KEYS | {"production.manage", "tickets.manage"},
     "designer": set(_DESIGNER_KEYS),
@@ -100,6 +128,8 @@ ROLE_META = {
     "marketing_head": ("Marketing Head", "#7B4B94"),
     "manager": ("Project Manager", "#8A9A5B"),
     "sales": ("Sales Executive", "#8A5A3B"),
+    "accounts": ("Finance / Accounts", "#4E6E58"),
+    "system_admin": ("System Admin", "#4A6274"),
     "production_engineer": ("Production Engineer", "#3B6E8F"),
     "designer": ("Designer", "#9C6644"),
     "supervisor": ("Site Manager", "#6B705C"),
@@ -144,6 +174,25 @@ def require_permission(perm: str):
     async def dep(user: dict = Depends(get_current_user)) -> dict:
         if not has_permission(user, perm):
             raise HTTPException(status_code=403, detail=f"Forbidden: missing permission '{perm}'")
+        return user
+
+    return dep
+
+
+def has_any(user: dict, *perms: str) -> bool:
+    """True if the user holds ANY of `perms` (CEO always passes)."""
+    return any(has_permission(user, p) for p in perms)
+
+
+def require_any_permission(*perms: str):
+    """FastAPI dependency that 403s unless the user has AT LEAST ONE of `perms`.
+    Used for the split money permissions where the legacy `payments.manage`
+    umbrella still satisfies both `payments.record` and `payments.confirm`."""
+    from core import get_current_user  # lazy import to avoid a circular import
+
+    async def dep(user: dict = Depends(get_current_user)) -> dict:
+        if not has_any(user, *perms):
+            raise HTTPException(status_code=403, detail=f"Forbidden: requires one of {', '.join(perms)}")
         return user
 
     return dep

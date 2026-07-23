@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* A soft, calm gradient for the auth screen backdrop. */
+.auth-backdrop {
+  background:
+    radial-gradient(1200px 600px at 100% -10%, rgba(20, 184, 166, 0.18), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(13, 148, 136, 0.14), transparent 55%),
+    #f8fafc;
+}

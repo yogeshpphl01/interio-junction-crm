@@ -27,7 +27,10 @@ from auth_utils import decode_token, extract_token
 from scoring import compute_score, DEFAULT_WEIGHTS
 from database import PostgresDatabase
 from pg_schema import LIFECYCLE_PHASES
-from permissions import has_permission, require_permission, permissions_for, role_label, role_color
+from permissions import (
+    has_permission, has_any, require_permission, require_any_permission,
+    permissions_for, role_label, role_color,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -294,13 +297,102 @@ async def get_current_user(request: Request) -> dict:
     payload = decode_token(token)
     if payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Invalid token type")
-    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+    user = await db.users.find_one(
+        {"id": payload["sub"]},
+        {"_id": 0, "password_hash": 0, "mfa_secret": 0, "mfa_backup_codes": 0})
     if not user or not user.get("is_active", True):
         raise HTTPException(status_code=401, detail="User not found or inactive")
+    if int(payload.get("tv", 0)) != int(user.get("token_version") or 0):
+        raise HTTPException(status_code=401, detail="Session revoked — please sign in again")
     user["permissions"] = permissions_for(user["role"])  # for permission-aware UI
     user["role_label"] = role_label(user["role"])         # for badges (incl. custom roles)
     user["role_color"] = role_color(user["role"])
+    user["aal"] = int(payload.get("aal", 1))              # NIST 800-63B assurance level from the token
+    user["amr"] = payload.get("amr", [])
     return user
+
+
+async def revoke_tokens(coll, doc_id: str) -> int:
+    """Instantly invalidate every token for a user/customer by bumping its
+    token_version (A7/B8 — logout, deactivation, role change, credential change)."""
+    doc = await coll.find_one({"id": doc_id}, {"_id": 0, "token_version": 1})
+    tv = int((doc or {}).get("token_version") or 0) + 1
+    await coll.update_one({"id": doc_id}, {"$set": {"token_version": tv}})
+    return tv
+
+
+def require_aal2(user: dict = Depends(get_current_user)) -> dict:
+    """Gate an endpoint on multi-factor (AAL2). Used for sensitive company actions."""
+    if int(user.get("aal", 1)) < 2:
+        raise HTTPException(status_code=403, detail="This action requires multi-factor authentication.")
+    return user
+
+
+# <step-up-gate> Fresh-second-factor enforcement on privileged actions is opt-in
+#   via STEP_UP_ENABLED so it can be switched on once all staff have enrolled MFA
+#   (P1-6) without locking out a not-yet-enrolled team today. When off, the guard
+#   is a pass-through; when on, a valid X-Step-Up-Token from /auth/mfa/step-up is
+#   required. The endpoints are wired now so flipping the flag is the only step. </step-up-gate>
+def step_up_enabled() -> bool:
+    return str(os.environ.get("STEP_UP_ENABLED", "")).lower() in ("1", "true", "yes", "on")
+
+
+async def assert_step_up(request: Request, user: dict, force: bool = False) -> None:
+    """Raise 403 unless a fresh step-up token is present (no-op when disabled).
+    Callable inline for actions that only need step-up on a specific transition
+    (e.g. marking a payment Paid) rather than on every call to the endpoint.
+    `force=True` enforces regardless of STEP_UP_ENABLED — used for high-value
+    money moves (large-payment confirm, refunds) once a threshold is configured."""
+    if not force and not step_up_enabled():
+        return
+    tok = request.headers.get("X-Step-Up-Token")
+    if not tok:
+        raise HTTPException(status_code=403, detail="Step-up authentication required for this action.")
+    try:
+        payload = decode_token(tok)
+    except HTTPException:
+        raise HTTPException(status_code=403, detail="Invalid or expired step-up token.")
+    if payload.get("type") != "step_up" or payload.get("sub") != user["id"]:
+        raise HTTPException(status_code=403, detail="Invalid step-up token.")
+
+
+async def require_step_up(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    """Dependency form of assert_step_up — for endpoints that always require a
+    fresh second factor. No-op unless STEP_UP_ENABLED (see step-up-gate)."""
+    await assert_step_up(request, user)
+    return user
+
+
+def client_step_up_enabled() -> bool:
+    return str(os.environ.get("CLIENT_STEP_UP_ENABLED", "")).lower() in ("1", "true", "yes", "on")
+
+
+async def assert_client_step_up(request: Request, customer: dict) -> None:
+    """Require a fresh customer step-up (X-Client-Step-Up, from /client/auth/step-up
+    after an on-device biometric/PIN) for a high-risk customer action. No-op unless
+    CLIENT_STEP_UP_ENABLED, so it activates once the app ships the biometric flow."""
+    if not client_step_up_enabled():
+        return
+    tok = request.headers.get("X-Client-Step-Up")
+    if not tok:
+        raise HTTPException(status_code=403, detail="Please confirm with biometrics to continue.")
+    try:
+        payload = decode_token(tok)
+    except HTTPException:
+        raise HTTPException(status_code=403, detail="Invalid or expired confirmation.")
+    if payload.get("type") != "customer_step_up" or payload.get("sub") != customer["id"]:
+        raise HTTPException(status_code=403, detail="Invalid confirmation token.")
+
+
+def deny_self_action(creator_id, user: dict, what: str = "item") -> None:
+    """Four-eyes / segregation-of-duties: the person who created/submitted a record
+    may not be the one who approves, confirms or verifies it — even CEO/Admin
+    (NIST AC-5, ISO A.5.3, SANS CSC 5). Raises 403 when creator == actor."""
+    if creator_id and creator_id == user.get("id"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Separation of duties: you cannot approve/confirm your own {what}. A second authorised person must action it.",
+        )
 
 
 def require_roles(*roles: str):
@@ -326,6 +418,8 @@ async def get_current_customer(request: Request) -> dict:
     customer = await db.customers.find_one({"id": payload["sub"]}, {"_id": 0})
     if not customer or not customer.get("is_active", True):
         raise HTTPException(status_code=401, detail="Customer not found or inactive")
+    if int(payload.get("tv", 0)) != int(customer.get("token_version") or 0):
+        raise HTTPException(status_code=401, detail="Session revoked — please sign in again")
     return customer
 
 

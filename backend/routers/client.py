@@ -38,11 +38,18 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
-from core import db, get_current_customer, now_iso, STAGES, run_workflow_notify_designer
-from auth_utils import (
-    hash_password, verify_password, decode_token,
-    create_customer_access_token, create_customer_refresh_token,
+from core import (
+    db, get_current_customer, now_iso, STAGES, run_workflow_notify_designer,
+    revoke_tokens, assert_client_step_up,
 )
+from app_check import require_app_check
+from auth_utils import (
+    hash_password, verify_password, decode_token, otp_debug_logging,
+    create_customer_access_token, create_customer_refresh_token,
+    create_doc_download_token, DOC_URL_TTL_MIN,
+    create_customer_step_up_token, STEP_UP_TTL_MIN,
+)
+from file_validation import safe_filename
 from audit import log_audit
 from push import register_device, unregister_device
 
@@ -53,6 +60,7 @@ router = APIRouter()
 OTP_TTL_MIN = 10               # a code is valid for 10 minutes
 OTP_RESEND_COOLDOWN_SEC = 60   # ignore a resend within 60s of the last send
 OTP_MAX_ATTEMPTS = 5           # lock the code after 5 wrong tries
+OTP_MAX_PER_DAY = 10           # cap requests per phone / 24h (anti SMS-bombing)
 
 # Estimate states a customer is allowed to see (internal drafts stay hidden).
 CLIENT_VISIBLE_ESTIMATE_STATES = ["shared", "accepted"]
@@ -91,7 +99,12 @@ async def _deliver_customer_otp(phone: str, code: str, name: Optional[str]) -> N
     (dev) exactly like the CRM's email-reset stub. Swapping in an SMS/WhatsApp
     provider — or Firebase phone auth — is a one-function change here.
     """
-    logger.info(f"[Client OTP] {phone} -> {code} (valid {OTP_TTL_MIN}m){' for ' + name if name else ''}")
+    if otp_debug_logging():
+        logger.info(f"[Client OTP] {phone} -> {code} (valid {OTP_TTL_MIN}m){' for ' + name if name else ''}")
+    else:
+        # Production: never log the code (or the full number). Real delivery goes
+        # through the SMS/WhatsApp/Firebase seam once configured.
+        logger.info(f"[Client OTP] code issued for ***{phone[-4:] if phone else ''} (delivery pending; set OTP_DEBUG_LOG in dev)")
 
 
 async def _leads_for_phone(norm: str) -> list[dict]:
@@ -138,12 +151,13 @@ async def _my_project_ids(customer: dict) -> list[str]:
 
 
 def _doc_view(d: dict) -> dict:
-    """Customer-safe document metadata. storage_path is the ref the app turns into
-    a signed download URL — no bytes are served here."""
+    """Customer-safe document metadata. The internal storage_path is NOT exposed;
+    the app fetches bytes via GET /client/documents/{id}/signed-url, which mints a
+    short-lived signed download URL (P1-10)."""
     return {
         "id": d["id"], "type": d.get("type"), "filename": d.get("original_filename"),
         "content_type": d.get("content_type"), "size": d.get("size"),
-        "storage_path": d.get("storage_path"), "created_at": d.get("created_at"),
+        "created_at": d.get("created_at"),
     }
 
 
@@ -177,7 +191,7 @@ class RefreshIn(BaseModel):
 
 
 @router.post("/client/auth/request-otp")
-async def request_otp(body: RequestOtpIn, request: Request):
+async def request_otp(body: RequestOtpIn, request: Request, _ac: None = Depends(require_app_check)):
     """
     Step 1 — issue a login code to a registered phone. The response is always the
     same generic message so an attacker cannot use it to discover which numbers
@@ -192,11 +206,17 @@ async def request_otp(body: RequestOtpIn, request: Request):
         return generic  # unknown number: reveal nothing, send nothing
 
     now = datetime.now(timezone.utc)
+    rows = await db.customer_otps.find({"phone": norm}).sort("created_at", -1).to_list(50)
     # Resend cooldown: honour only the most recent code row for this phone.
-    rows = await db.customer_otps.find({"phone": norm}).sort("created_at", -1).to_list(1)
     if rows and rows[0].get("sent_at"):
         if (now - datetime.fromisoformat(rows[0]["sent_at"])).total_seconds() < OTP_RESEND_COOLDOWN_SEC:
             return generic  # silently respect the cooldown
+    # Daily cap per phone (anti SMS-bombing / abuse). Per-IP + global caps belong
+    # at the gateway (Cloud Armor) — see MOBILE_SECURITY_STANDARDS I1/I2.
+    day_ago = (now - timedelta(hours=24)).isoformat()
+    if sum(1 for r in rows if (r.get("created_at") or "") >= day_ago) >= OTP_MAX_PER_DAY:
+        await log_audit(db, None, "client.otp_failed", "customer", None, norm, {"reason": "daily_cap"}, request)
+        return generic
 
     code = _generate_otp()
     await db.customer_otps.insert_one({
@@ -215,7 +235,7 @@ async def request_otp(body: RequestOtpIn, request: Request):
 
 
 @router.post("/client/auth/verify-otp")
-async def verify_otp(body: VerifyOtpIn, request: Request):
+async def verify_otp(body: VerifyOtpIn, request: Request, _ac: None = Depends(require_app_check)):
     """Step 2 — verify the code and mint a customer session (access + refresh)."""
     invalid = HTTPException(status_code=400, detail="Invalid or expired code")
     norm = normalize_phone(body.phone)
@@ -255,8 +275,9 @@ async def verify_otp(body: VerifyOtpIn, request: Request):
         await db.leads.update_one({"id": lid}, {"$set": {"customer_id": customer["id"]}})
     await db.customers.update_one({"id": customer["id"]}, {"$set": {"last_login_at": now_iso()}})
 
-    access = create_customer_access_token(customer["id"], customer["phone"])
-    refresh = create_customer_refresh_token(customer["id"])
+    tv = int(customer.get("token_version") or 0)
+    access = create_customer_access_token(customer["id"], customer["phone"], tv=tv)
+    refresh = create_customer_refresh_token(customer["id"], tv=tv)
     await log_audit(db, None, "client.login", "customer", customer["id"], customer.get("full_name"),
                     {"phone": norm}, request)
     customer.pop("_id", None)
@@ -275,15 +296,29 @@ async def refresh_client_token(body: RefreshIn, request: Request):
     customer = await db.customers.find_one({"id": payload["sub"]}, {"_id": 0})
     if not customer or not customer.get("is_active", True):
         raise HTTPException(status_code=401, detail="Customer not found or inactive")
-    access = create_customer_access_token(customer["id"], customer["phone"])
+    tv = int(customer.get("token_version") or 0)
+    if int(payload.get("tv", 0)) != tv:
+        raise HTTPException(status_code=401, detail="Session revoked — please sign in again")
+    access = create_customer_access_token(customer["id"], customer["phone"], tv=tv)
     return {"access_token": access, "token_type": "bearer"}
 
 
 @router.post("/client/auth/logout")
 async def client_logout(request: Request, customer: dict = Depends(get_current_customer)):
-    """Bearer tokens are stateless; this just records the event for the audit trail."""
+    """Revoke this customer's tokens server-side, then record the event."""
+    await revoke_tokens(db.customers, customer["id"])
     await log_audit(db, None, "client.logout", "customer", customer["id"], customer.get("full_name"), None, request)
     return {"ok": True}
+
+
+@router.post("/client/auth/step-up")
+async def client_step_up(request: Request, customer: dict = Depends(get_current_customer)):
+    """Issue a short-lived elevation after the app has re-verified the customer
+    on-device (biometric/PIN via local_auth). Send the returned token as the
+    X-Client-Step-Up header on a high-risk action (accept estimate / approve
+    design). Gated actions require it only when CLIENT_STEP_UP_ENABLED."""
+    await log_audit(db, None, "client.step_up", "customer", customer["id"], customer.get("full_name"), None, request)
+    return {"step_up_token": create_customer_step_up_token(customer["id"]), "expires_in": STEP_UP_TTL_MIN * 60}
 
 
 @router.get("/client/me")
@@ -368,6 +403,7 @@ async def client_accept_estimate(estimate_id: str, request: Request,
     is what unlocks the 10% booking payment. Strictly scoped: the estimate's lead
     must belong to this customer, and a 404 (not 403) hides anything that doesn't.
     """
+    await assert_client_step_up(request, customer)   # biometric confirm (high-risk)
     est = await db.estimates.find_one({"id": estimate_id}, {"_id": 0})
     if not est:
         raise HTTPException(status_code=404, detail="Estimate not found")
@@ -431,6 +467,7 @@ async def client_designs(customer: dict = Depends(get_current_customer)):
 async def client_approve_design(rev_id: str, request: Request,
                                 customer: dict = Depends(get_current_customer)):
     """Customer approves a shared design revision (the Production-Design gate needs one)."""
+    await assert_client_step_up(request, customer)   # biometric confirm (high-risk)
     rev = await _own_revision_or_404(rev_id, customer)
     if rev["status"] == "Approved":
         return {"ok": True, "revision_id": rev_id, "status": "Approved"}  # idempotent
@@ -523,3 +560,122 @@ async def client_documents(customer: dict = Depends(get_current_customer)):
                if not d.get("is_deleted") and d.get("type") in CLIENT_VISIBLE_DOC_TYPES]
     visible.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     return {"documents": visible}
+
+
+@router.get("/client/documents/{doc_id}/signed-url")
+async def client_document_signed_url(doc_id: str, customer: dict = Depends(get_current_customer)):
+    """Mint a short-lived signed download URL for a customer-visible document.
+    Access is checked here (the doc must belong to one of the customer's projects
+    and be a client-visible type); the returned URL is the capability (P1-10)."""
+    pids = await _my_project_ids(customer)
+    rec = await db.documents.find_one({"id": doc_id, "is_deleted": {"$ne": True}}, {"_id": 0})
+    if not rec or rec.get("project_id") not in pids or rec.get("type") not in CLIENT_VISIBLE_DOC_TYPES:
+        raise HTTPException(status_code=404, detail="Not found")
+    token = create_doc_download_token(doc_id, customer["id"], "customer")
+    return {
+        "url": f"/api/documents/download?token={token}",
+        "expires_in": DOC_URL_TTL_MIN * 60,
+        "filename": safe_filename(rec.get("original_filename")),
+    }
+
+
+# ============================================================================
+# <section name="DPDP — consent + data-subject rights (P1-11)">
+#   India DPDP Act 2023: consent capture/withdrawal (§6), right to access &
+#   data portability (export), and right to erasure (§11-13) via a request the
+#   business actions (transactional records are retained per §8(7) retention).
+# </section>
+CONSENT_PURPOSES = {"data_processing", "marketing", "whatsapp_updates"}
+PRIVACY_POLICY_VERSION = "2026-01"
+
+
+class ConsentIn(BaseModel):
+    purpose: str
+    granted: bool
+    policy_version: Optional[str] = None
+
+
+class ErasureIn(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/client/me/consent")
+async def client_record_consent(body: ConsentIn, request: Request,
+                                customer: dict = Depends(get_current_customer)):
+    """Record a consent decision (grant or withdraw). Append-only ledger."""
+    if body.purpose not in CONSENT_PURPOSES:
+        raise HTTPException(status_code=400, detail=f"Unknown purpose. Allowed: {sorted(CONSENT_PURPOSES)}")
+    row = {
+        "id": str(uuid.uuid4()),
+        "subject_type": "customer",
+        "subject_id": customer["id"],
+        "purpose": body.purpose,
+        "policy_version": body.policy_version or PRIVACY_POLICY_VERSION,
+        "granted": bool(body.granted),
+        "source": "client_app",
+        "created_at": now_iso(),
+    }
+    await db.consents.insert_one(row)
+    await log_audit(db, None, "privacy.consent_recorded", "customer", customer["id"], customer.get("full_name"),
+                    {"purpose": body.purpose, "granted": bool(body.granted)}, request)
+    row.pop("_id", None)
+    return row
+
+
+@router.get("/client/me/consent")
+async def client_get_consent(customer: dict = Depends(get_current_customer)):
+    """Current consent state (latest decision per purpose) + full history."""
+    rows = await db.consents.find({"subject_id": customer["id"]}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    current = {}
+    for r in rows:  # rows are newest-first, so the first seen per purpose is current
+        current.setdefault(r["purpose"], r["granted"])
+    return {"policy_version": PRIVACY_POLICY_VERSION, "current": current, "history": rows}
+
+
+@router.get("/client/me/export")
+async def client_export_data(customer: dict = Depends(get_current_customer)):
+    """Right to access + data portability: everything we hold about this customer,
+    in a structured, customer-safe bundle."""
+    lead_ids = await _my_lead_ids(customer)
+    pids = await _my_project_ids(customer)
+    leads = await db.leads.find({"customer_id": customer["id"]}, {"_id": 0}).to_list(1000)
+    projects = await db.projects.find({"id": {"$in": pids}}, {"_id": 0}).to_list(1000) if pids else []
+    estimates = await db.estimates.find({"lead_id": {"$in": lead_ids}}, {"_id": 0}).to_list(1000) if lead_ids else []
+    payments = await db.payments.find({"project_id": {"$in": pids}}, {"_id": 0}).to_list(1000) if pids else []
+    docs = await db.documents.find({"project_id": {"$in": pids}}, {"_id": 0}).to_list(1000) if pids else []
+    consents = await db.consents.find({"subject_id": customer["id"]}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return {
+        "generated_at": now_iso(),
+        "profile": {k: customer.get(k) for k in ("id", "full_name", "phone", "email", "created_at", "last_login_at")},
+        "leads": [{k: l.get(k) for k in ("id", "full_name", "phone", "email", "stage", "status", "created_at")} for l in leads],
+        "projects": [{k: p.get(k) for k in ("id", "project_code", "contract_value", "activated_at", "created_at")} for p in projects],
+        "estimates": [{k: e.get(k) for k in ("id", "version", "status", "total", "currency", "created_at")} for e in estimates],
+        "payments": [_payment_view(p) for p in payments],
+        "documents": [_doc_view(d) for d in docs if not d.get("is_deleted") and d.get("type") in CLIENT_VISIBLE_DOC_TYPES],
+        "consents": consents,
+    }
+
+
+@router.post("/client/me/erasure-request")
+async def client_request_erasure(body: ErasureIn, request: Request,
+                                 customer: dict = Depends(get_current_customer)):
+    """Right to erasure: lodge a request the business actions. Idempotent — a
+    pending request is reused. Actual erasure is a controlled staff step so that
+    transactional/tax records can be retained per DPDP §8(7)."""
+    existing = await db.erasure_requests.find_one(
+        {"customer_id": customer["id"], "status": "pending"}, {"_id": 0})
+    if existing:
+        return {"ok": True, "status": "pending", "request_id": existing["id"], "message": "An erasure request is already pending."}
+    row = {
+        "id": str(uuid.uuid4()),
+        "customer_id": customer["id"],
+        "status": "pending",
+        "reason": (body.reason or "")[:500],
+        "requested_at": now_iso(),
+        "decided_by": None, "decided_at": None, "note": None,
+    }
+    await db.erasure_requests.insert_one(row)
+    await log_audit(db, None, "privacy.erasure_requested", "customer", customer["id"], customer.get("full_name"),
+                    {"request_id": row["id"]}, request)
+    return {"ok": True, "status": "pending", "request_id": row["id"],
+            "message": "Your erasure request has been received. We'll process it per the DPDP Act."}

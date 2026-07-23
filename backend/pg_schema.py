@@ -78,9 +78,17 @@ SCHEMA: dict[str, dict] = {
             "is_active": "BOOLEAN",
             "must_change_password": "BOOLEAN",  # set after admin generates a password
             "created_by": "TEXT",
+            "failed_login_count": "INTEGER",    # brute-force lockout (reset on success)
+            "locked_until": "TEXT",             # ISO ts; login rejected while in the future
+            # --- MFA (TOTP) ---
+            "mfa_enrolled": "BOOLEAN",
+            "mfa_secret": "TEXT",               # base32 TOTP secret — ENCRYPT AT REST (CMEK / field-level, C5/C6)
+            "mfa_backup_codes": "JSONB",        # [{hash, used}] one-time recovery codes (bcrypt-hashed)
+            "mfa_last_step": "INTEGER",         # last consumed TOTP step (replay protection)
+            "token_version": "INTEGER",         # bump to instantly revoke all of a user's tokens
             "created_at": "TEXT",
         },
-        "json": [],
+        "json": ["mfa_backup_codes"],
         "indexes": [
             {"cols": [("email", 1)], "unique": True},
         ],
@@ -294,6 +302,14 @@ SCHEMA: dict[str, dict] = {
             "screenshot_ref": "TEXT",          # manual-UPI payment screenshot
             "verified_by": "TEXT",
             "verified_at": "TEXT",
+            "created_by": "TEXT",              # who RECORDED the milestone (four-eyes: != confirmer)
+            "confirmed_by": "TEXT",            # who CONFIRMED it Paid (SoD, must differ from created_by)
+            "gateway": "TEXT",                 # "razorpay" when paid via the gateway
+            "gateway_order_id": "TEXT",        # Razorpay order id (set at order creation)
+            "gateway_payment_id": "TEXT",      # Razorpay payment id (from the webhook)
+            "refunded_at": "TEXT",             # SoD refund path (P1-13)
+            "refund_amount": "DOUBLE PRECISION",
+            "refunded_by": "TEXT",
             "due_date": "TEXT",
             "paid_date": "TEXT",
             "status": "TEXT",
@@ -303,6 +319,100 @@ SCHEMA: dict[str, dict] = {
         "indexes": [
             {"cols": [("project_id", 1)], "unique": False},
             {"cols": [("lead_id", 1)], "unique": False},
+            {"cols": [("gateway_order_id", 1)], "unique": False},
+        ],
+    },
+
+    # <table name="gateway_events"><purpose>Idempotency ledger for payment-gateway
+    #   webhooks (P1-13). The gateway event id is the PK, so a replayed webhook is a
+    #   no-op and a payment can never activate a project twice.</purpose></table>
+    "gateway_events": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",            # the gateway's event id (idempotency key)
+            "event_type": "TEXT",    # payment.captured | refund.processed | ...
+            "payment_id": "TEXT",    # our payments.id it resolved to
+            "processed_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("payment_id", 1)], "unique": False},
+        ],
+    },
+
+    # <passkeys> WebAuthn / FIDO2 credentials for phishing-resistant staff login
+    #   (admin/CEO). Registration + authentication ceremonies verified by
+    #   py_webauthn; see routers/passkeys.py. </passkeys>
+    "webauthn_credentials": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "user_id": "TEXT",
+            "credential_id": "TEXT",   # base64url of the raw credential id
+            "public_key": "TEXT",      # base64url of the COSE public key
+            "sign_count": "INTEGER",
+            "transports": "TEXT",
+            "label": "TEXT",
+            "created_at": "TEXT",
+            "last_used_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("user_id", 1)], "unique": False},
+            {"cols": [("credential_id", 1)], "unique": True},
+        ],
+    },
+    "webauthn_challenges": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "user_id": "TEXT",
+            "kind": "TEXT",            # register | auth
+            "challenge": "TEXT",       # base64url
+            "expires_at": "TEXT",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("user_id", 1)], "unique": False},
+        ],
+    },
+
+    # <chat> Project chat (customer <-> staff). A thread starts as a DM and can
+    #   convert to a project GROUP once the project activates. Realtime delivery
+    #   (Firestore) + the Flutter UI layer on top of this REST foundation. </chat>
+    "chat_threads": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "project_id": "TEXT",
+            "lead_id": "TEXT",
+            "kind": "TEXT",            # dm | group
+            "title": "TEXT",
+            "created_by": "TEXT",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("project_id", 1)], "unique": False},
+            {"cols": [("lead_id", 1)], "unique": False},
+        ],
+    },
+    "chat_messages": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "thread_id": "TEXT",
+            "sender_type": "TEXT",     # staff | customer
+            "sender_id": "TEXT",
+            "sender_name": "TEXT",
+            "body": "TEXT",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("thread_id", 1)], "unique": False},
+            {"cols": [("created_at", 1)], "unique": False},
         ],
     },
 
@@ -420,12 +530,60 @@ SCHEMA: dict[str, dict] = {
             "id": "TEXT", "lead_id": "TEXT", "full_name": "TEXT",
             "phone": "TEXT", "email": "TEXT", "auth_uid": "TEXT",
             "is_active": "BOOLEAN", "last_login_at": "TEXT", "created_at": "TEXT",
+            "token_version": "INTEGER",   # bump to instantly revoke the customer's tokens
+            "erased_at": "TEXT",          # DPDP erasure: PII anonymized at this ts (P1-11)
+            # <pii-encryption> Blind-index surrogates for the encrypted phone/email
+            #   columns (HMAC of the normalized value) — carry the UNIQUE constraint
+            #   and enable equality lookups when PII_ENCRYPTION_KEY is set. Unused
+            #   (NULL) when encryption is off. See pii_crypto.py / C6. </pii-encryption>
+            "phone_bidx": "TEXT",
+            "email_bidx": "TEXT",
+        },
+        "json": [],
+        "encrypted": ["phone", "email"],   # stored AES-GCM-encrypted; looked up via *_bidx
+        "indexes": [
+            {"cols": [("phone", 1)], "unique": True},   # harmless in encrypted mode (ciphertext never collides)
+            {"cols": [("email", 1)], "unique": True},
+            {"cols": [("phone_bidx", 1)], "unique": True},   # real uniqueness in encrypted mode
+            {"cols": [("email_bidx", 1)], "unique": True},
+            {"cols": [("lead_id", 1)], "unique": False},
+        ],
+    },
+    # <dpdp> Consent ledger + erasure requests (India DPDP Act 2023 §6/§11-13). </dpdp>
+    "consents": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "subject_type": "TEXT",       # "customer"
+            "subject_id": "TEXT",
+            "purpose": "TEXT",            # data_processing | marketing | ...
+            "policy_version": "TEXT",
+            "granted": "BOOLEAN",         # append-only ledger; withdrawal = new granted=false row
+            "source": "TEXT",             # client_app | web | staff
+            "created_at": "TEXT",
         },
         "json": [],
         "indexes": [
-            {"cols": [("phone", 1)], "unique": True},
-            {"cols": [("email", 1)], "unique": True},
-            {"cols": [("lead_id", 1)], "unique": False},
+            {"cols": [("subject_id", 1)], "unique": False},
+            {"cols": [("subject_id", 1), ("purpose", 1)], "unique": False},
+        ],
+    },
+    "erasure_requests": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "customer_id": "TEXT",
+            "status": "TEXT",             # pending | completed | rejected
+            "reason": "TEXT",
+            "requested_at": "TEXT",
+            "decided_by": "TEXT",
+            "decided_at": "TEXT",
+            "note": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("customer_id", 1)], "unique": False},
+            {"cols": [("status", 1)], "unique": False},
         ],
     },
 
@@ -714,6 +872,11 @@ SCHEMA: dict[str, dict] = {
             "ip": "TEXT",
             "user_agent": "TEXT",
             "created_at": "TEXT",
+            # <tamper-evidence> Hash chain: each entry's `hash` = SHA256 over its
+            #   canonical content + the previous entry's `hash`. Deleting or editing
+            #   any row breaks the chain (verify_audit_chain). AU-9 / A.8.15. </tamper-evidence>
+            "prev_hash": "TEXT",
+            "hash": "TEXT",
         },
         "json": ["metadata"],
         "indexes": [

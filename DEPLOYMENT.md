@@ -14,11 +14,18 @@ This guide assumes **no prior knowledge**. Copy each command exactly. Words in
 
 ## 0. First, the one important thing to understand
 
-This CRM is a real web application made of **three parts**:
+This CRM is a real web application made of **four parts**:
 
 1. a **database** (PostgreSQL — what you see in pgAdmin),
-2. a **backend** (the brain / API, written in Python), and
-3. a **frontend** (the website you click around in).
+2. a **backend** (the brain / API, written in Python),
+3. a **company website** (the staff CRM you click around in), and
+4. a **customer portal** (a *separate* website your clients log into with their
+   phone number to see estimates, designs, payments and to chat with your team).
+
+Both websites run on the **same server** and talk to the **same backend**, but
+they are **separate applications with separate logins**: staff sign in with an
+email + password on the company site; customers sign in with a phone + one-time
+code on the customer portal. Neither can reach the other's data.
 
 👉 Running these needs a **Hostinger VPS** (a small private server you get full
 control of). It **cannot** run on Hostinger "Web Hosting / Shared Hosting"
@@ -30,8 +37,8 @@ see a server there, you're good. If you only see **Hosting** (websites), you'll
 need to buy a VPS (the cheapest "KVM 1" plan is enough to start).
 
 > Good news: I've packaged everything with **Docker**, so the entire stack
-> (database + backend + frontend) starts with **one command**. You do **not**
-> need to install Python, Node, or PostgreSQL by hand.
+> (database + backend + company site + customer portal) starts with **one
+> command**. You do **not** need to install Python, Node, or PostgreSQL by hand.
 
 ---
 
@@ -120,6 +127,11 @@ ADMIN_PASSWORD=pick-your-admin-password             # 👈 change
 POSTGRES_USER=crm
 POSTGRES_DB=interio_crm
 ADMIN_EMAIL=admin@interiojunction.com
+
+# Web ports. The company site defaults to 80 and the customer portal to 8080.
+# Change these only if those ports are already used on your server.
+# WEB_PORT=80
+# CLIENT_WEB_PORT=8080
 ```
 
 Save and exit nano: press **Ctrl+O**, **Enter**, then **Ctrl+X**.
@@ -145,13 +157,14 @@ finishes, check everything is running:
 docker compose ps
 ```
 
-All three services (`db`, `backend`, `frontend`) should show **running / up**.
+All four services (`db`, `backend`, `frontend`, `client-portal`) should show
+**running / up**.
 
 ---
 
-## 7. Open the CRM and log in 🎉
+## 7. Open the two apps and log in 🎉
 
-In your web browser go to:
+**Company site (your staff):** in a browser go to
 
 ```
 http://123.45.67.89
@@ -162,8 +175,28 @@ http://123.45.67.89
 - **Email:** `admin@interiojunction.com`
 - **Password:** the `ADMIN_PASSWORD` you set in `.env`
 
+**Customer portal (your clients):** it runs on the same server, on port **8080**:
+
+```
+http://123.45.67.89:8080
+```
+
+Customers log in with the **phone number** you have on file for them (as a lead)
+— they enter the number, receive a one-time code, and they're in. There is no
+password and no self-signup: a code is only ever sent to a number that already
+exists as a lead in your CRM. (No SMS gateway is wired yet, so during setup the
+login code is written to the backend logs — `docker compose logs backend` — the
+same way password-reset codes are. Wiring a real SMS/WhatsApp provider is a
+one-function change; see `backend/routers/client.py`.)
+
 The database tables and a few demo leads are created automatically on the first
 start — nothing to set up by hand.
+
+> **Want clean web addresses instead of a port?** Point two subdomains at this
+> server (e.g. `app.yourdomain.com` → port 80 for staff, `portal.yourdomain.com`
+> → port 8080 for customers) from a reverse proxy / Hostinger's domain settings.
+> Because the customer portal keeps its session in its own browser storage (not a
+> shared cookie), the two apps stay fully isolated even on the same domain.
 
 ---
 
@@ -286,6 +319,8 @@ docker compose up -d --build
 | Symptom | Fix |
 |---|---|
 | Browser shows nothing / can't connect | Run `docker compose ps`. If `frontend` isn't "running", run `docker compose logs frontend`. Also make sure port **80** is open in the Hostinger VPS firewall. |
+| Customer portal (`:8080`) won't open | Run `docker compose logs client-portal`. Make sure port **8080** is open in the VPS firewall (or set a different `CLIENT_WEB_PORT` in `.env`). |
+| Customer can't get a login code | The code is only sent to a phone number that already exists as a **lead**. Check the number is on a lead, and (until an SMS gateway is wired) read the code from `docker compose logs backend`. |
 | "Invalid credentials" at login | The admin password is the `ADMIN_PASSWORD` from `.env`. If you changed it *after* the first start, the old one is already saved — log in with the original, then change it in **Settings**. |
 | pgAdmin can't connect | Check port **5432** is open in the VPS firewall and the password matches `POSTGRES_PASSWORD`. |
 | Import says "Could not read spreadsheet" | Make sure it's the `.xlsx` (or `.csv`) exported from Meta Lead Ads. |
@@ -301,3 +336,30 @@ docker compose up -d --build
 Once it works on the IP, you can point a domain at the server's IP (an **A
 record**) and add free HTTPS. That's an optional polish step — tell me when
 you're ready and I'll walk you through it.
+
+> Tip: point **two** subdomains at the server — `app.yourdomain.com` → port 80
+> (staff) and `portal.yourdomain.com` → port 8080 (customers). Passkeys (below)
+> need HTTPS, so this is also the step that unlocks them.
+
+---
+
+## 14. Turn on the security features (when you're ready)
+
+Everything ships **off by default** so the one-command demo just works. Turn
+each control on by adding a line to your `.env` and re-running
+`docker compose up -d` (it recreates the backend with the new settings). Full
+reference: `docs/security/SECRETS.md`.
+
+| Add to `.env` | Turns on | Do this first |
+|---|---|---|
+| `STEP_UP_ENABLED=1` | Ask for a fresh 2FA code before sensitive actions (delete user, confirm/refund payment, role change) | Make sure staff have **enabled 2FA** first (header → shield icon), or those actions will be blocked |
+| `WEBAUTHN_RP_ID=app.yourdomain.com`<br>`WEBAUTHN_ORIGIN=https://app.yourdomain.com` | **Passkeys** — staff sign in with fingerprint/face/PIN | Needs a **domain + HTTPS** (section 13). On a plain `http://IP` the passkey button is hidden because browsers block it |
+| `CLIENT_STEP_UP_ENABLED=1` | Ask customers to re-confirm before accepting an estimate / approving a design | Roll out once you've told customers to expect it |
+| `PII_ENCRYPTION_KEY=<base64 32-byte key>` | Encrypt customer phone/email at rest | Generate with `openssl rand -base64 32`, then run `docker compose exec backend python migrate_pii.py` once to encrypt existing rows |
+| `RAZORPAY_WEBHOOK_SECRET=…` | Verify Razorpay payment webhooks | Set when the payment gateway goes live |
+| `BULK_READ_ALERT_THRESHOLD=100` | Log an alert when one staff member reads a large batch of customer records | Lower it for tighter monitoring (default 100) |
+
+**Order that works well:** get staff onto 2FA → add a domain + HTTPS → turn on
+passkeys and `STEP_UP_ENABLED` → then `CLIENT_STEP_UP_ENABLED` and
+`PII_ENCRYPTION_KEY`. Take them one at a time and check each works before the
+next.

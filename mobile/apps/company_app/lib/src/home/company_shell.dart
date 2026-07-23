@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services.dart';
 import '../push/push_service.dart';
 import '../auth/login_screen.dart';
+import '../auth/mfa_screens.dart';
 import 'worklist_screen.dart';
 import 'projects_screen.dart';
 
@@ -42,7 +43,15 @@ class _CompanyShellState extends State<CompanyShell> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_titles[_index]),
-        actions: [IconButton(icon: const Icon(Icons.logout), tooltip: 'Sign out', onPressed: _logout)],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.security),
+            tooltip: 'Two-factor auth',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MfaEnrollScreen())),
+          ),
+          IconButton(icon: const Icon(Icons.logout), tooltip: 'Sign out', onPressed: _logout),
+        ],
       ),
       body: IndexedStack(index: _index, children: _tabs),
       bottomNavigationBar: NavigationBar(

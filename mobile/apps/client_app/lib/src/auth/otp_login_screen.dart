@@ -12,7 +12,7 @@ class OtpLoginScreen extends StatefulWidget {
   State<OtpLoginScreen> createState() => _OtpLoginScreenState();
 }
 
-class _OtpLoginScreenState extends State<OtpLoginScreen> {
+class _OtpLoginScreenState extends State<OtpLoginScreen> with SecureScreenMixin {
   final _phone = TextEditingController();
   final _code = TextEditingController();
   bool _codeSent = false;
@@ -88,6 +88,11 @@ class _OtpLoginScreenState extends State<OtpLoginScreen> {
                       controller: _code,
                       keyboardType: TextInputType.number,
                       autofocus: true,
+                      // Keyboard-cache hygiene for the one-time code (MASVS-STORAGE
+                      // C4): don't let the OTP land in autofill / suggestion history.
+                      enableSuggestions: false,
+                      autocorrect: false,
+                      enableIMEPersonalizedLearning: false,
                       decoration: const InputDecoration(
                         labelText: 'Login code',
                         hintText: '4-digit code',

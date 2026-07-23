@@ -7,12 +7,13 @@
 import { useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, KeyRound } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { passkeySupported } from "@/lib/webauthn";
 import ForgotPasswordModal from "@/components/ForgotPasswordModal";
 
 export default function Login() {
-  const { user, login } = useAuth();
+  const { user, login, completeMfa, loginWithPasskey } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +21,8 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [mfaToken, setMfaToken] = useState(null);   // set once password succeeds but 2FA is required
+  const [code, setCode] = useState("");
 
   if (user) return <Navigate to="/" replace />;
 
@@ -30,7 +33,27 @@ export default function Login() {
     const res = await login(email, password);
     setSubmitting(false);
     if (res.ok) navigate("/");
+    else if (res.mfaRequired) { setMfaToken(res.mfaToken); setError(""); }
     else setError(res.error);
+  };
+
+  const onVerify = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSubmitting(true);
+    const res = await completeMfa(mfaToken, code.trim());
+    setSubmitting(false);
+    if (res.ok) navigate("/");
+    else setError(res.error);
+  };
+
+  const onPasskey = async () => {
+    setError("");
+    setSubmitting(true);
+    const res = await loginWithPasskey(email.trim());
+    setSubmitting(false);
+    if (res.ok) navigate("/");
+    else if (!res.cancelled) setError(res.error || "Passkey sign-in failed");
   };
 
   return (
@@ -60,6 +83,7 @@ export default function Login() {
             </p>
           </div>
 
+          {!mfaToken ? (
           <form onSubmit={onSubmit} className="space-y-4" data-testid="login-form">
             <div>
               <label className="text-[11px] uppercase tracking-[0.12em] text-ink-soft font-semibold">Email</label>
@@ -120,7 +144,72 @@ export default function Login() {
             >
               {submitting ? "Signing in…" : "Sign in"}
             </button>
+            {passkeySupported() && (
+              <>
+                <div className="flex items-center gap-3 pt-1">
+                  <div className="h-px flex-1 bg-edge" />
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-ink-muted">or</span>
+                  <div className="h-px flex-1 bg-edge" />
+                </div>
+                <button
+                  type="button"
+                  onClick={onPasskey}
+                  disabled={submitting}
+                  data-testid="login-passkey-btn"
+                  className="w-full flex items-center justify-center gap-2 border border-edge text-ink hover:bg-bone-subtle rounded-md py-2.5 font-medium transition-colors disabled:opacity-60"
+                >
+                  <KeyRound className="w-4 h-4" /> Sign in with a passkey
+                </button>
+              </>
+            )}
           </form>
+          ) : (
+          <form onSubmit={onVerify} className="space-y-4" data-testid="login-mfa-form">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-clay font-semibold">
+              Two-factor authentication
+            </div>
+            <p className="text-sm text-ink-soft leading-relaxed">
+              Enter the 6-digit code from your authenticator app to finish signing in.
+            </p>
+            <div>
+              <label className="text-[11px] uppercase tracking-[0.12em] text-ink-soft font-semibold">Authentication code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/[^0-9A-Za-z-]/g, ""))}
+                required
+                autoFocus
+                maxLength={14}
+                data-testid="login-mfa-input"
+                className="mt-1.5 w-full bg-bone-paper border border-edge rounded-md px-3 py-2.5 text-ink text-center text-lg tracking-[0.3em] focus:border-clay focus:ring-2 focus:ring-clay/20 outline-none"
+                placeholder="123456"
+              />
+              <div className="mt-1.5 text-[11px] text-ink-soft">Lost your device? Enter one of your backup codes instead.</div>
+            </div>
+            {error && (
+              <div data-testid="login-error" className="text-sm text-clay-deep bg-clay/10 border border-clay/30 rounded-md px-3 py-2">
+                {error}
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={submitting}
+              data-testid="login-mfa-submit"
+              className="w-full bg-clay hover:bg-clay-deep disabled:opacity-60 text-white rounded-md py-2.5 font-medium transition-colors"
+            >
+              {submitting ? "Verifying…" : "Verify & sign in"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMfaToken(null); setCode(""); setError(""); }}
+              className="w-full text-[12px] text-ink-soft hover:text-ink"
+            >
+              Back to sign in
+            </button>
+          </form>
+          )}
         </div>
       </div>
 
