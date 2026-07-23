@@ -11,6 +11,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import AppShell from "@/components/AppShell";
+import StepUpProvider from "@/components/StepUpModal";
 import Login from "@/pages/Login";
 import CommandCenter from "@/pages/CommandCenter";
 import Pipeline from "@/pages/Pipeline";
@@ -27,6 +28,7 @@ import NotificationSettings from "@/pages/NotificationSettings";
 export default function App() {
   return (
     <AuthProvider>
+      <StepUpProvider />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />

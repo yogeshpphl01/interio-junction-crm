@@ -7,12 +7,13 @@
 import { useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, KeyRound } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { passkeySupported } from "@/lib/webauthn";
 import ForgotPasswordModal from "@/components/ForgotPasswordModal";
 
 export default function Login() {
-  const { user, login, completeMfa } = useAuth();
+  const { user, login, completeMfa, loginWithPasskey } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -44,6 +45,15 @@ export default function Login() {
     setSubmitting(false);
     if (res.ok) navigate("/");
     else setError(res.error);
+  };
+
+  const onPasskey = async () => {
+    setError("");
+    setSubmitting(true);
+    const res = await loginWithPasskey(email.trim());
+    setSubmitting(false);
+    if (res.ok) navigate("/");
+    else if (!res.cancelled) setError(res.error || "Passkey sign-in failed");
   };
 
   return (
@@ -134,6 +144,24 @@ export default function Login() {
             >
               {submitting ? "Signing in…" : "Sign in"}
             </button>
+            {passkeySupported() && (
+              <>
+                <div className="flex items-center gap-3 pt-1">
+                  <div className="h-px flex-1 bg-edge" />
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-ink-muted">or</span>
+                  <div className="h-px flex-1 bg-edge" />
+                </div>
+                <button
+                  type="button"
+                  onClick={onPasskey}
+                  disabled={submitting}
+                  data-testid="login-passkey-btn"
+                  className="w-full flex items-center justify-center gap-2 border border-edge text-ink hover:bg-bone-subtle rounded-md py-2.5 font-medium transition-colors disabled:opacity-60"
+                >
+                  <KeyRound className="w-4 h-4" /> Sign in with a passkey
+                </button>
+              </>
+            )}
           </form>
           ) : (
           <form onSubmit={onVerify} className="space-y-4" data-testid="login-mfa-form">

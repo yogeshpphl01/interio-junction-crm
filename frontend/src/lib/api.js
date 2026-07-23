@@ -27,6 +27,40 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// ---- Step-up (re-authentication) bridge ----------------------------------
+// Sensitive actions (payment confirm/refund, approvals, role change, delete)
+// can answer 403 asking for a fresh second factor (P1-9). A UI provider
+// registers a handler here that prompts for a code and returns a short-lived
+// elevation token; the interceptor then replays the request with the
+// X-Step-Up-Token header. Centralised, so no individual call site changes.
+let stepUpHandler = null;
+export function setStepUpHandler(fn) {
+  stepUpHandler = fn;
+}
+
+function needsStepUp(error) {
+  const status = error?.response?.status;
+  const detail = error?.response?.data?.detail;
+  return status === 403 && typeof detail === "string" && /step[-\s]?up/i.test(detail);
+}
+
+api.interceptors.response.use(
+  (r) => r,
+  async (error) => {
+    const original = error.config || {};
+    if (needsStepUp(error) && !original._steppedUp && stepUpHandler) {
+      original._steppedUp = true;
+      const elevation = await stepUpHandler(); // resolves to a token, or null if cancelled
+      if (elevation) {
+        original.headers = original.headers || {};
+        original.headers["X-Step-Up-Token"] = elevation;
+        return api(original); // replay the original request, now elevated
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export function formatApiErrorDetail(detail) {
   if (detail == null) return "Something went wrong. Please try again.";
   if (typeof detail === "string") return detail;

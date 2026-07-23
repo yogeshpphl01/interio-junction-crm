@@ -18,7 +18,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { ShieldCheck, ShieldAlert, Copy, Check, KeyRound } from "lucide-react";
+import { ShieldCheck, ShieldAlert, Copy, Check, KeyRound, Fingerprint, Plus, Trash2 } from "lucide-react";
+import { registerPasskey, listPasskeys, deletePasskey, passkeySupported, isPasskeyCancel } from "@/lib/webauthn";
 
 const cls = "w-full bg-bone-paper border border-edge rounded-md px-3 py-2 text-ink text-sm focus:border-clay outline-none";
 
@@ -31,12 +32,33 @@ export default function SecurityModal({ onClose }) {
   const [backupCodes, setBackupCodes] = useState(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [passkeys, setPasskeys] = useState([]);
+  const [pkBusy, setPkBusy] = useState(false);
 
   const loadStatus = async () => {
     try { setStatus((await api.get("/auth/mfa/status")).data); }
     catch { setStatus({ enrolled: false }); }
   };
-  useEffect(() => { loadStatus(); }, []);
+  const loadPasskeys = async () => {
+    if (!passkeySupported()) return;
+    try { setPasskeys(await listPasskeys()); } catch { /* ignore */ }
+  };
+  useEffect(() => { loadStatus(); loadPasskeys(); }, []);
+
+  const addPasskey = async () => {
+    setPkBusy(true);
+    try {
+      await registerPasskey("Passkey");
+      toast.success("Passkey added");
+      await loadPasskeys();
+    } catch (e) {
+      if (!isPasskeyCancel(e)) toast.error(e?.response?.data?.detail || "Could not add passkey");
+    } finally { setPkBusy(false); }
+  };
+  const removePasskey = async (id) => {
+    try { await deletePasskey(id); toast.success("Passkey removed"); await loadPasskeys(); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Could not remove passkey"); }
+  };
 
   const startEnroll = async () => {
     setBusy(true);
@@ -158,6 +180,38 @@ export default function SecurityModal({ onClose }) {
                   <button onClick={startEnroll} disabled={busy} className="bg-clay text-white px-4 py-1.5 text-sm rounded-md disabled:opacity-50" data-testid="mfa-enroll-btn">{busy ? "Starting…" : "Enable 2FA"}</button>
                 )}
               </div>
+
+              {passkeySupported() && (
+                <div className="border-t border-edge pt-4">
+                  <div className="flex items-start gap-3">
+                    <Fingerprint className="w-6 h-6 text-clay shrink-0" />
+                    <div className="flex-1">
+                      <div className="font-medium text-ink">Passkeys</div>
+                      <div className="text-sm text-ink-soft">Sign in with your fingerprint, face, or device PIN — phishing-resistant, no code to type.</div>
+                    </div>
+                  </div>
+                  {passkeys.length > 0 && (
+                    <ul className="mt-3 space-y-2" data-testid="passkey-list">
+                      {passkeys.map((p) => (
+                        <li key={p.id} className="flex items-center justify-between rounded-md border border-edge bg-white/60 px-3 py-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <KeyRound className="w-4 h-4 text-ink-soft shrink-0" />
+                            <span className="text-sm text-ink truncate">{p.label || "Passkey"}</span>
+                          </div>
+                          <button onClick={() => removePasskey(p.id)} className="text-ink-soft hover:text-clay-deep p-1" title="Remove passkey" data-testid="passkey-remove">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="mt-3 flex justify-end">
+                    <button onClick={addPasskey} disabled={pkBusy} className="inline-flex items-center gap-1.5 border border-edge text-ink px-4 py-1.5 text-sm rounded-md hover:bg-white/60 disabled:opacity-50" data-testid="passkey-add-btn">
+                      <Plus className="w-4 h-4" /> {pkBusy ? "Waiting…" : "Add a passkey"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
