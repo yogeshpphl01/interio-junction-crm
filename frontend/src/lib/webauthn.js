@@ -12,7 +12,10 @@ import { startRegistration, startAuthentication } from "@simplewebauthn/browser"
 import { api } from "@/lib/api";
 
 export function passkeySupported() {
-  return typeof window !== "undefined" && !!window.PublicKeyCredential;
+  // WebAuthn needs a secure context (HTTPS, or localhost in dev). On a plain
+  // http://IP host the ceremony would throw, so hide the passkey UI there —
+  // it appears once the app is served over HTTPS with WEBAUTHN_* configured.
+  return typeof window !== "undefined" && !!window.PublicKeyCredential && window.isSecureContext;
 }
 
 // Enroll a passkey for the signed-in staff member.

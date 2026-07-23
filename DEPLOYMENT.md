@@ -336,3 +336,30 @@ docker compose up -d --build
 Once it works on the IP, you can point a domain at the server's IP (an **A
 record**) and add free HTTPS. That's an optional polish step — tell me when
 you're ready and I'll walk you through it.
+
+> Tip: point **two** subdomains at the server — `app.yourdomain.com` → port 80
+> (staff) and `portal.yourdomain.com` → port 8080 (customers). Passkeys (below)
+> need HTTPS, so this is also the step that unlocks them.
+
+---
+
+## 14. Turn on the security features (when you're ready)
+
+Everything ships **off by default** so the one-command demo just works. Turn
+each control on by adding a line to your `.env` and re-running
+`docker compose up -d` (it recreates the backend with the new settings). Full
+reference: `docs/security/SECRETS.md`.
+
+| Add to `.env` | Turns on | Do this first |
+|---|---|---|
+| `STEP_UP_ENABLED=1` | Ask for a fresh 2FA code before sensitive actions (delete user, confirm/refund payment, role change) | Make sure staff have **enabled 2FA** first (header → shield icon), or those actions will be blocked |
+| `WEBAUTHN_RP_ID=app.yourdomain.com`<br>`WEBAUTHN_ORIGIN=https://app.yourdomain.com` | **Passkeys** — staff sign in with fingerprint/face/PIN | Needs a **domain + HTTPS** (section 13). On a plain `http://IP` the passkey button is hidden because browsers block it |
+| `CLIENT_STEP_UP_ENABLED=1` | Ask customers to re-confirm before accepting an estimate / approving a design | Roll out once you've told customers to expect it |
+| `PII_ENCRYPTION_KEY=<base64 32-byte key>` | Encrypt customer phone/email at rest | Generate with `openssl rand -base64 32`, then run `docker compose exec backend python migrate_pii.py` once to encrypt existing rows |
+| `RAZORPAY_WEBHOOK_SECRET=…` | Verify Razorpay payment webhooks | Set when the payment gateway goes live |
+| `BULK_READ_ALERT_THRESHOLD=100` | Log an alert when one staff member reads a large batch of customer records | Lower it for tighter monitoring (default 100) |
+
+**Order that works well:** get staff onto 2FA → add a domain + HTTPS → turn on
+passkeys and `STEP_UP_ENABLED` → then `CLIENT_STEP_UP_ENABLED` and
+`PII_ENCRYPTION_KEY`. Take them one at a time and check each works before the
+next.

@@ -59,6 +59,27 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SENDER_EMAIL: ${SENDER_EMAIL:-}
       SENDER_NAME: ${SENDER_NAME:-Interio Junction}
+      # --- Security enforcement --------------------------------------------
+      # All OFF/empty by default so the one-command demo still runs; turn each
+      # on in .env for production. Full reference: docs/security/SECRETS.md and
+      # DEPLOYMENT.md §"Turn on the security features".
+      #
+      # Staff passkeys (WebAuthn). Point these at your COMPANY-app host; passkeys
+      # require HTTPS (a domain + cert), so leave empty until you have one.
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-Interio Junction}
+      # Fresh second factor on sensitive staff actions (enable AFTER staff enrol MFA).
+      STEP_UP_ENABLED: ${STEP_UP_ENABLED:-0}
+      # Customer biometric confirmation on accept-estimate / approve-design.
+      CLIENT_STEP_UP_ENABLED: ${CLIENT_STEP_UP_ENABLED:-0}
+      # Field-level PII encryption (base64 32-byte key; run migrate_pii.py after enabling).
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:-}
+      # Alert when one staff list read returns >= this many PII records.
+      BULK_READ_ALERT_THRESHOLD: ${BULK_READ_ALERT_THRESHOLD:-100}
+      # Razorpay signed webhook + large-payment step-up (set when the gateway is live).
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      PAYMENT_STEP_UP_THRESHOLD: ${PAYMENT_STEP_UP_THRESHOLD:-0}
     expose:
       - "8000"
 
