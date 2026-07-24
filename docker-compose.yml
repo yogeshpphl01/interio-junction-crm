@@ -80,6 +80,13 @@ services:
       # Razorpay signed webhook + large-payment step-up (set when the gateway is live).
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
       PAYMENT_STEP_UP_THRESHOLD: ${PAYMENT_STEP_UP_THRESHOLD:-0}
+      # DEMO login for the customer portal — NON-PRODUCTION walkthroughs only.
+      # Set BOTH to let one fixed number+code open the portal without an SMS
+      # gateway. Scoped to this ONE number (not a universal bypass) and auto-
+      # disabled when APP_ENV=production. Leave EMPTY for real customers. Seed the
+      # demo data once with:  docker compose exec backend python seed_demo_customer.py
+      CLIENT_DEMO_PHONE: ${CLIENT_DEMO_PHONE:-}
+      CLIENT_DEMO_OTP: ${CLIENT_DEMO_OTP:-}
     expose:
       - "8000"
 
