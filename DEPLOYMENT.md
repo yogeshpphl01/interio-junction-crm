@@ -363,3 +363,34 @@ reference: `docs/security/SECRETS.md`.
 passkeys and `STEP_UP_ENABLED` → then `CLIENT_STEP_UP_ENABLED` and
 `PII_ENCRYPTION_KEY`. Take them one at a time and check each works before the
 next.
+
+---
+
+## 15. Preview the customer portal (demo login, no SMS)
+
+Until an SMS gateway is wired, the customer's login code is written to the
+backend logs. To read what a customer sees without hunting for the code, use the
+built-in **demo login** — a single fixed number + code that opens the portal.
+
+> It only works for the one demo number, and it **auto-disables when
+> `APP_ENV=production`**. Leave it **off** (both values empty) once real
+> customers start using the portal.
+
+1. Add to `.env`:
+   ```ini
+   CLIENT_DEMO_PHONE=9998887777
+   CLIENT_DEMO_OTP=4821
+   ```
+2. Recreate the backend and seed a demo customer with sample data:
+   ```bash
+   docker compose up -d
+   docker compose exec backend python seed_demo_customer.py
+   ```
+3. Open the portal → `http://YOUR_IP:8080`, enter **9998887777**, tap **Send login
+   code**, then type **4821**. You'll see a fully populated project — estimate,
+   design, payments, documents, and a chat message — exactly as a customer would.
+
+To turn it off: delete those two lines from `.env` and run `docker compose up -d`
+(or set `APP_ENV=production`). The demo customer's data is harmless sample data
+tagged with `demo-` ids; remove it later with
+`docker compose exec db psql -U crm -d interio_crm -c "DELETE FROM leads WHERE id LIKE 'demo-%'"` if you like.

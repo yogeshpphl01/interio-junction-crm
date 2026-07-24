@@ -29,6 +29,7 @@
   </endpoints>
 </module>
 """
+import os
 import uuid
 import logging
 import secrets
@@ -234,6 +235,41 @@ async def request_otp(body: RequestOtpIn, request: Request, _ac: None = Depends(
     return generic
 
 
+def _demo_login() -> Optional[tuple[str, str]]:
+    """Opt-in DEMO login for the customer portal — NON-PRODUCTION ONLY.
+
+    Returns (normalized_phone, code) only when BOTH CLIENT_DEMO_PHONE and
+    CLIENT_DEMO_OTP are set, letting a single fixed number + code open the portal
+    without an SMS gateway (for walkthroughs/demos). It is scoped to that ONE
+    seeded number — it is NOT a universal bypass — and is hard-disabled whenever
+    APP_ENV=production. Unset by default => no demo login at all.
+    """
+    if str(os.environ.get("APP_ENV", "")).lower() == "production":
+        return None
+    phone = normalize_phone(os.environ.get("CLIENT_DEMO_PHONE", ""))
+    code = (os.environ.get("CLIENT_DEMO_OTP", "") or "").strip()
+    return (phone, code) if phone and code else None
+
+
+async def _issue_customer_session(norm: str, leads: list[dict], request: Request, demo: bool = False) -> dict:
+    """Resolve/create the customer for this phone, link their leads, mint tokens.
+    Shared by the real OTP path and the demo path so both behave identically."""
+    customer = await _get_or_create_customer(norm, leads)
+    for lid in [l["id"] for l in leads]:
+        await db.leads.update_one({"id": lid}, {"$set": {"customer_id": customer["id"]}})
+    await db.customers.update_one({"id": customer["id"]}, {"$set": {"last_login_at": now_iso()}})
+    tv = int(customer.get("token_version") or 0)
+    access = create_customer_access_token(customer["id"], customer["phone"], tv=tv)
+    refresh = create_customer_refresh_token(customer["id"], tv=tv)
+    await log_audit(db, None, "client.login", "customer", customer["id"], customer.get("full_name"),
+                    {"phone": norm, **({"demo": True} if demo else {})}, request)
+    if demo:
+        logger.warning("[DEMO LOGIN] customer portal opened via demo OTP for %s — "
+                       "unset CLIENT_DEMO_PHONE/CLIENT_DEMO_OTP before real customer launch", norm)
+    customer.pop("_id", None)
+    return {"customer": customer, "access_token": access, "refresh_token": refresh, "token_type": "bearer"}
+
+
 @router.post("/client/auth/verify-otp")
 async def verify_otp(body: VerifyOtpIn, request: Request, _ac: None = Depends(require_app_check)):
     """Step 2 — verify the code and mint a customer session (access + refresh)."""
@@ -244,6 +280,12 @@ async def verify_otp(body: VerifyOtpIn, request: Request, _ac: None = Depends(re
     leads = await _leads_for_phone(norm)
     if not leads:
         raise invalid
+
+    # Opt-in demo login (non-production): a fixed phone+code for portal walkthroughs
+    # without SMS. Scoped to the one seeded CLIENT_DEMO_PHONE; see _demo_login().
+    demo = _demo_login()
+    if demo and norm == demo[0] and body.code.strip() == demo[1]:
+        return await _issue_customer_session(norm, leads, request, demo=True)
 
     now = datetime.now(timezone.utc)
     rows = await db.customer_otps.find({"phone": norm}).sort("created_at", -1).to_list(1)
@@ -268,20 +310,9 @@ async def verify_otp(body: VerifyOtpIn, request: Request, _ac: None = Depends(re
                         {"attempts": attempts, "locked": attempts >= OTP_MAX_ATTEMPTS}, request)
         raise invalid
 
-    # Success: consume the code, resolve the customer, and link their leads.
+    # Success: consume the code, then resolve the customer and mint a session.
     await db.customer_otps.update_one({"id": rec["id"]}, {"$set": {"consumed": True}})
-    customer = await _get_or_create_customer(norm, leads)
-    for lid in [l["id"] for l in leads]:
-        await db.leads.update_one({"id": lid}, {"$set": {"customer_id": customer["id"]}})
-    await db.customers.update_one({"id": customer["id"]}, {"$set": {"last_login_at": now_iso()}})
-
-    tv = int(customer.get("token_version") or 0)
-    access = create_customer_access_token(customer["id"], customer["phone"], tv=tv)
-    refresh = create_customer_refresh_token(customer["id"], tv=tv)
-    await log_audit(db, None, "client.login", "customer", customer["id"], customer.get("full_name"),
-                    {"phone": norm}, request)
-    customer.pop("_id", None)
-    return {"customer": customer, "access_token": access, "refresh_token": refresh, "token_type": "bearer"}
+    return await _issue_customer_session(norm, leads, request)
 
 
 @router.post("/client/auth/refresh")
