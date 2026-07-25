@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Interio Junction — Security Architecture & Controls</title>
+<style>
+  :root{
+    --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --soft:#f8fafc;
+    --teal:#0f766e; --teal-bg:#ecfdf5; --teal-line:#99f6e4;
+    --clay:#9a5b34; --clay-bg:#fdf3ec; --clay-line:#f0d3bd;
+    --slate:#334155; --amber:#b45309; --rose:#b91c1c; --green:#047857;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-print-color-adjust:exact; print-color-adjust:exact;}
+  body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--ink);
+       font-size:11px; line-height:1.5; margin:0;}
+  h1,h2,h3,h4{line-height:1.2; margin:0 0 .35em;}
+  h1{font-size:26px;} h2{font-size:19px; color:var(--slate);} h3{font-size:14px;} h4{font-size:12px;}
+  p{margin:0 0 .6em;}
+  small{color:var(--muted);}
+  .muted{color:var(--muted);}
+  a{color:var(--teal); text-decoration:none;}
+
+  @page{ size:A4; margin:16mm 14mm 18mm; }
+  .page{ page-break-after:always; }
+  .page:last-child{ page-break-after:auto; }
+  .avoid{ page-break-inside:avoid; }
+
+  /* Cover */
+  .cover{ height:255mm; display:flex; flex-direction:column; justify-content:center;
+    background:linear-gradient(160deg,#0f766e 0%,#115e59 45%,#134e4a 100%); color:#fff;
+    margin:-16mm -14mm; padding:0 22mm; }
+  .cover .kicker{ text-transform:uppercase; letter-spacing:.28em; font-size:11px; opacity:.85; }
+  .cover h1{ font-size:40px; margin:.3em 0 .1em; }
+  .cover .sub{ font-size:16px; opacity:.92; max-width:70%; }
+  .cover .meta{ margin-top:40px; font-size:12px; opacity:.9; }
+  .cover .rule{ width:70px; height:4px; background:#5eead4; margin:18px 0; border-radius:2px;}
+  .badge{ display:inline-block; border:1px solid rgba(255,255,255,.4); border-radius:999px;
+    padding:3px 12px; font-size:11px; margin-top:26px; }
+
+  .lead{ font-size:12.5px; color:var(--slate); }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .note{ background:var(--soft); border:1px solid var(--line); border-left:3px solid var(--teal);
+    border-radius:6px; padding:10px 12px; margin:10px 0; }
+  .legendbox{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+
+  /* Section header */
+  .sec{ border-bottom:2px solid var(--line); padding-bottom:6px; margin:0 0 12px; }
+  .sec .n{ color:var(--teal); font-weight:700; font-size:12px; letter-spacing:.1em; }
+
+  /* Architecture diagram (layered cards) */
+  .arch{ border:1px solid var(--line); border-radius:12px; padding:14px; background:#fff; }
+  .arch.cust{ border-color:var(--teal-line); background:linear-gradient(180deg,#fff, #f6fffd); }
+  .arch.staff{ border-color:var(--clay-line); background:linear-gradient(180deg,#fff,#fffaf6); }
+  .arch h3{ display:flex; align-items:center; gap:8px; margin-bottom:2px; }
+  .pill{ font-size:9.5px; font-weight:700; padding:2px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:.06em;}
+  .pill.t{ background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal-line);}
+  .pill.c{ background:var(--clay-bg); color:var(--clay); border:1px solid var(--clay-line);}
+  .layer{ border:1px solid var(--line); border-radius:9px; padding:8px 10px; margin:0; background:#fff; }
+  .layer .lt{ font-weight:700; font-size:11px; color:var(--slate); }
+  .layer .lc{ color:var(--muted); font-size:10px; margin:1px 0 5px;}
+  .flow{ text-align:center; color:#94a3b8; font-size:13px; line-height:1; margin:4px 0; }
+  .chips{ display:flex; flex-wrap:wrap; gap:4px; }
+  .chip{ font-size:9px; padding:2px 7px; border-radius:999px; border:1px solid var(--teal-line);
+    background:var(--teal-bg); color:#0b5f58; white-space:nowrap;}
+  .arch.staff .chip{ border-color:var(--clay-line); background:var(--clay-bg); color:#7c4a26; }
+  .chip.gray{ background:#f1f5f9; border-color:#e2e8f0; color:#475569; }
+  .xcut{ margin-top:8px; border:1px dashed #cbd5e1; border-radius:9px; padding:7px 10px; background:#f8fafc;}
+  .xcut .lt{ color:#475569; }
+
+  /* Tables */
+  table{ border-collapse:collapse; width:100%; font-size:9.6px; }
+  th,td{ border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top; }
+  th{ background:#f1f5f9; color:var(--slate); font-weight:700; }
+  tbody tr:nth-child(even){ background:#fafafa; }
+  td.c,th.c{ text-align:center; width:34px; }
+  .yes{ color:var(--green); font-weight:700; }
+  .part{ color:var(--amber); font-weight:700; }
+  .no{ color:#cbd5e1; }
+  .grp td{ background:#eef2ff; font-weight:700; color:#3730a3; }
+
+  .why h4{ margin-top:12px; color:var(--teal); }
+  ul{ margin:.2em 0 .7em; padding-left:16px; } li{ margin:.15em 0; }
+  .ctrl{ font-weight:600; }
+  .q h4{ color:var(--clay); margin-top:14px; border-left:3px solid var(--clay-line); padding-left:8px;}
+  .q ol{ margin:.2em 0 .6em; padding-left:18px; } .q li{ margin:.28em 0; }
+  .foot{ position:running(f); }
+  .tag{ display:inline-block; font-size:8.5px; font-weight:700; padding:1px 6px; border-radius:4px; }
+  .tag.be{ background:#eef2ff; color:#3730a3; } .tag.cl{ background:#ecfeff; color:#0e7490; }
+</style>
+</head>
+<body>
+
+<!-- ============================ COVER ============================ -->
+<section class="page">
+  <div class="cover">
+    <div class="kicker">Interio Junction CRM · Security Dossier</div>
+    <div class="rule"></div>
+    <h1>Security Architecture &amp; Controls</h1>
+    <div class="sub">The four applications — Customer Mobile, Customer Web, Staff Mobile, Staff Web — on a shared FastAPI&nbsp;+&nbsp;PostgreSQL backend.</div>
+    <div class="meta">
+      Prepared for security review (CISO discussion)<br>
+      Version 1.0 · 25 July 2026 · <strong>Confidential</strong>
+    </div>
+    <span class="badge">Architecture · Controls · Plain-English rationale · CISO question set</span>
+  </div>
+</section>
+
+<!-- ============================ EXECUTIVE SUMMARY ============================ -->
+<section class="page">
+  <div class="sec"><span class="n">00</span> &nbsp; Executive summary</div>
+  <p class="lead">Interio Junction operates <strong>four applications</strong> — a customer mobile app and web portal, and a staff mobile app and web CRM — on <strong>one shared, security-hardened backend</strong> (FastAPI) and <strong>one database</strong> (PostgreSQL). Security is built in depth: at the device/browser, in transit, at the API, and in the database, plus automated checks on every code change.</p>
+
+  <div class="grid2">
+    <div class="legendbox avoid">
+      <p style="margin:0 0 6px"><strong>Posture at a glance</strong></p>
+      <ul style="margin:0">
+        <li><strong>Customers and staff are fully isolated</strong> — separate, non-interchangeable login tokens (dual-BFF); neither can reach the other's data.</li>
+        <li><strong>Strong identity</strong> — passwordless phone OTP for customers; password + MFA and phishing-resistant passkeys for staff.</li>
+        <li><strong>Data protected</strong> — TLS in transit, field-level encryption of contact details at rest, signed/expiring file links, least-privilege DB role.</li>
+        <li><strong>Insider &amp; fraud controls</strong> — role-based access, four-eyes on money, mass-read alerts, and a tamper-evident (hash-chained) audit log.</li>
+        <li><strong>Secure by build</strong> — automated SAST, dependency/secret scanning, SBOM and authorization tests gate every change.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="note" style="margin-top:0">
+        <strong>Honest current state.</strong> The <em>application and backend</em> controls are implemented and tested. What remains is largely <strong>production configuration and infrastructure</strong>: turning on HTTPS (which also unlocks passkeys), enforcing MFA, moving the encryption key to a managed KMS, and hardening the hosting. These are tracked as ◐ items and summarised as a 90-day roadmap in §06.
+      </div>
+      <p style="margin-top:10px"><strong>What we're seeking from this review:</strong> an experienced steer on our top real-world risks, confirmation we're prioritising correctly for a company our size, and the two or three highest-value improvements to make next (§07).</p>
+    </div>
+  </div>
+
+  <div class="legendbox avoid" style="margin-top:12px">
+    <p style="margin:0 0 6px"><strong>By the numbers</strong></p>
+    <div class="chips">
+      <span class="chip gray"><strong>4</strong> applications, <strong>1</strong> backend, <strong>1</strong> database</span>
+      <span class="chip gray"><strong>30+</strong> distinct security controls</span>
+      <span class="chip gray"><strong>7</strong> control domains</span>
+      <span class="chip gray"><strong>2</strong>-factor + passkeys for staff</span>
+      <span class="chip gray"><strong>0</strong> shared sessions across the customer/staff boundary</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ OVERVIEW ============================ -->
+<section class="page">
+  <div class="sec"><span class="n">01</span> &nbsp; How the system fits together</div>
+  <p class="lead">Interio Junction runs <strong>four front-end applications</strong> that all talk to <strong>one backend</strong> and <strong>one database</strong>. Customers and staff are kept strictly apart at every layer.</p>
+
+  <div class="grid2">
+    <div>
+      <p><strong>The four applications</strong></p>
+      <ul>
+        <li><span class="ctrl">Customer Mobile</span> — the Flutter app clients install on their phone.</li>
+        <li><span class="ctrl">Customer Web</span> — the browser portal for the same clients.</li>
+        <li><span class="ctrl">Staff Mobile</span> — the Flutter app for the Interio Junction team.</li>
+        <li><span class="ctrl">Staff Web</span> — the browser CRM for the team.</li>
+      </ul>
+      <p><strong>Shared backend &amp; data</strong></p>
+      <ul>
+        <li><span class="ctrl">API (FastAPI)</span> — every request goes through it; it enforces identity, permissions and business rules.</li>
+        <li><span class="ctrl">PostgreSQL</span> — one database, accessed only by the API through a least-privilege role.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="legendbox avoid">
+        <p style="margin:0 0 6px"><strong>The single most important boundary</strong></p>
+        <p class="muted" style="margin:0 0 6px">The backend is a <strong>dual-BFF</strong> (Backend-for-Frontend): customer requests and staff requests use <em>different, non-interchangeable</em> login tokens.</p>
+        <div class="chips">
+          <span class="chip gray">Customer token → only <code>/api/client/*</code></span>
+          <span class="chip gray">Staff token → only staff routes</span>
+        </div>
+        <p class="muted" style="margin:8px 0 0">A customer token is <strong>rejected</strong> on staff routes and vice-versa — so one side can never reach the other's data, even if something else goes wrong.</p>
+      </div>
+      <div class="note" style="margin-top:12px">
+        <strong>How to read the diagrams:</strong> each app is shown as a stack of layers a request passes through — from the user's device/browser at the top, down to the database. Security controls that live at each layer are shown as chips. A dashed band at the bottom lists controls that protect <em>every</em> layer.
+      </div>
+    </div>
+  </div>
+
+  <div class="legendbox avoid" style="margin-top:12px">
+    <strong>Maturity legend</strong> (used throughout) &nbsp;
+    <span class="yes">●</span> implemented &amp; active &nbsp;·&nbsp;
+    <span class="part">◐</span> implemented, needs a production setting to switch on (a key, a certificate, HTTPS, or an on/off flag) &nbsp;·&nbsp;
+    <span class="no">—</span> not applicable to this app
+    <p class="muted" style="margin:6px 0 0">Most controls ship <strong>off by default</strong> and are turned on during roll-out — deliberately, so nothing is half-configured. This document is honest about what is on versus what still needs a setting.</p>
+  </div>
+</section>
+
+<!-- ============================ DIAGRAMS ============================ -->
+<section class="page">
+  <div class="sec"><span class="n">02</span> &nbsp; Architecture diagrams</div>
+
+  <div class="grid2">
+    <!-- 1. Customer Mobile -->
+    <div class="arch cust avoid">
+      <h3>1 · Customer Mobile <span class="pill t">Flutter app</span></h3>
+      <div class="muted" style="font-size:10px;margin-bottom:8px">Client installs it · logs in with phone + one-time code</div>
+      <div class="layer"><div class="lt">Customer device</div><div class="lc">Flutter client app</div>
+        <div class="chips"><span class="chip">Secure keystore storage</span><span class="chip">Screenshot block</span><span class="chip">Root/jailbreak detection</span><span class="chip">Tapjacking guard</span><span class="chip">Code obfuscation</span><span class="chip">Biometric step-up</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">Transport</div><div class="lc">HTTPS to the API</div>
+        <div class="chips"><span class="chip">TLS 1.2+</span><span class="chip">Certificate pinning</span><span class="chip">App Check / Play Integrity</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">Customer BFF · <code>/api/client/*</code></div><div class="lc">FastAPI · customer token only</div>
+        <div class="chips"><span class="chip">Phone-OTP login</span><span class="chip">Own-data scoping (BOLA)</span><span class="chip">Signed file links</span><span class="chip">Rate limits + OTP caps</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">PostgreSQL</div><div class="lc">Least-privilege role</div>
+        <div class="chips"><span class="chip">PII field encryption</span><span class="chip">DML-only role</span></div></div>
+      <div class="xcut"><div class="lt">Cross-cutting (all layers)</div>
+        <div class="chips"><span class="chip gray">Tamper-evident audit log</span><span class="chip gray">Instant token revocation</span><span class="chip gray">Secrets management</span></div></div>
+    </div>
+
+    <!-- 2. Customer Web -->
+    <div class="arch cust avoid">
+      <h3>2 · Customer Web <span class="pill t">Browser portal</span></h3>
+      <div class="muted" style="font-size:10px;margin-bottom:8px">Same client, in a browser · phone + one-time code</div>
+      <div class="layer"><div class="lt">Customer browser</div><div class="lc">React portal (client-portal)</div>
+        <div class="chips"><span class="chip">Bearer-only session (no cookies)</span><span class="chip">Isolated from staff app</span><span class="chip">Secure headers</span><span class="chip">Auto token refresh</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">Transport &amp; edge</div><div class="lc">HTTPS · nginx reverse proxy</div>
+        <div class="chips"><span class="chip">TLS 1.2+</span><span class="chip">X-Frame-Options: DENY</span><span class="chip">nosniff · Referrer-Policy</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">Customer BFF · <code>/api/client/*</code></div><div class="lc">FastAPI · customer token only</div>
+        <div class="chips"><span class="chip">Phone-OTP login</span><span class="chip">Own-data scoping (BOLA)</span><span class="chip">Signed file links</span><span class="chip">Client step-up (opt-in)</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">PostgreSQL</div><div class="lc">Least-privilege role</div>
+        <div class="chips"><span class="chip">PII field encryption</span><span class="chip">DML-only role</span></div></div>
+      <div class="xcut"><div class="lt">Cross-cutting (all layers)</div>
+        <div class="chips"><span class="chip gray">Tamper-evident audit log</span><span class="chip gray">Rate limits + lockout</span><span class="chip gray">Secrets management</span></div></div>
+    </div>
+
+    <!-- 3. Staff Mobile -->
+    <div class="arch staff avoid">
+      <h3>3 · Staff Mobile <span class="pill c">Flutter app</span></h3>
+      <div class="muted" style="font-size:10px;margin-bottom:8px">Team app · email + password + authenticator code</div>
+      <div class="layer"><div class="lt">Staff device</div><div class="lc">Flutter company app</div>
+        <div class="chips"><span class="chip">Secure keystore storage</span><span class="chip">Screenshot block</span><span class="chip">Root/jailbreak detection</span><span class="chip">Code obfuscation</span><span class="chip">Biometric step-up</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">Transport</div><div class="lc">HTTPS to the API</div>
+        <div class="chips"><span class="chip">TLS 1.2+</span><span class="chip">Certificate pinning</span><span class="chip">App Check / Play Integrity</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">Staff API · <code>/api/*</code></div><div class="lc">FastAPI · staff token only</div>
+        <div class="chips"><span class="chip">Password + MFA (TOTP)</span><span class="chip">Role-based access (RBAC)</span><span class="chip">Step-up on sensitive acts</span><span class="chip">Four-eyes approvals</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">PostgreSQL</div><div class="lc">Least-privilege role</div>
+        <div class="chips"><span class="chip">PII field encryption</span><span class="chip">DML-only role</span></div></div>
+      <div class="xcut"><div class="lt">Cross-cutting (all layers)</div>
+        <div class="chips"><span class="chip gray">Hash-chained audit log</span><span class="chip gray">Instant revocation</span><span class="chip gray">Bulk-read alerts</span></div></div>
+    </div>
+
+    <!-- 4. Staff Web -->
+    <div class="arch staff avoid">
+      <h3>4 · Staff Web <span class="pill c">Browser CRM</span></h3>
+      <div class="muted" style="font-size:10px;margin-bottom:8px">Team CRM in a browser · password + MFA or passkey</div>
+      <div class="layer"><div class="lt">Staff browser</div><div class="lc">React CRM (frontend)</div>
+        <div class="chips"><span class="chip">MFA login challenge</span><span class="chip">Passkeys (WebAuthn)</span><span class="chip">Step-up prompt</span><span class="chip">Secure headers</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">Transport &amp; edge</div><div class="lc">HTTPS · nginx reverse proxy</div>
+        <div class="chips"><span class="chip">TLS 1.2+</span><span class="chip">Security headers</span><span class="chip">Same-origin API proxy</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">Staff API · <code>/api/*</code></div><div class="lc">FastAPI · staff token only</div>
+        <div class="chips"><span class="chip">Role-based access (RBAC)</span><span class="chip">Segregation of duties</span><span class="chip">Step-up (X-Step-Up-Token)</span><span class="chip">Signed webhooks</span></div></div>
+      <div class="flow">▼</div>
+      <div class="layer"><div class="lt">PostgreSQL</div><div class="lc">Least-privilege role</div>
+        <div class="chips"><span class="chip">PII field encryption</span><span class="chip">DML-only role</span></div></div>
+      <div class="xcut"><div class="lt">Cross-cutting (all layers)</div>
+        <div class="chips"><span class="chip gray">Hash-chained audit log</span><span class="chip gray">Break-glass alerts</span><span class="chip gray">Bulk-read alerts</span></div></div>
+    </div>
+  </div>
+  <p class="muted" style="margin-top:10px">All four funnel into the <strong>same FastAPI backend and PostgreSQL database</strong>. The two customer apps can only reach the <code>/api/client/*</code> BFF; the two staff apps can only reach the staff API. Neither side's token works on the other's routes.</p>
+</section>
+
+<!-- ============================ PER-APP CONTROLS ============================ -->
+<section class="page">
+  <div class="sec"><span class="n">03</span> &nbsp; Security measures — application by application</div>
+  <p class="muted">Tag key: <span class="tag cl">client</span> lives in the app on the device/browser · <span class="tag be">backend</span> enforced by the shared API/DB and therefore protects this app too.</p>
+
+  <h3 style="color:var(--teal); margin-top:8px">1 · Customer Mobile app</h3>
+  <ul>
+    <li><span class="ctrl">Phone one-time-code (OTP) login</span> <span class="tag be">backend</span> — no password to steal; a code is only sent to a number already on file.</li>
+    <li><span class="ctrl">Certificate pinning &amp; app attestation</span> <span class="tag cl">client</span> — the app only trusts our real server and the backend only accepts our genuine app.</li>
+    <li><span class="ctrl">On-device hardening</span> <span class="tag cl">client</span> — secure keystore for tokens, screenshot/recording block on sensitive screens, root/jailbreak detection, tapjacking guard, code obfuscation.</li>
+    <li><span class="ctrl">Biometric step-up</span> <span class="tag cl">client</span> — fingerprint/face confirmation before high-risk actions (accepting an estimate, approving a design).</li>
+    <li><span class="ctrl">Own-data scoping</span> <span class="tag be">backend</span> — a customer can only ever see their own projects, files and payments.</li>
+    <li><span class="ctrl">Signed, expiring file links · PII encryption · least-privilege DB · audit log</span> <span class="tag be">backend</span>.</li>
+  </ul>
+
+  <h3 style="color:var(--teal)">2 · Customer Web portal</h3>
+  <ul>
+    <li><span class="ctrl">Phone OTP login</span> <span class="tag be">backend</span> — same passwordless login as the mobile app.</li>
+    <li><span class="ctrl">Bearer-only session isolation</span> <span class="tag cl">client</span> — the portal keeps its login token in its own browser storage and sends <em>no cookies</em>, so it can never share a session with the staff site even on the same server.</li>
+    <li><span class="ctrl">Browser security headers</span> <span class="tag cl">client</span> — anti-clickjacking (X-Frame-Options: DENY), MIME-sniffing off, referrer minimised.</li>
+    <li><span class="ctrl">Automatic token refresh</span> <span class="tag cl">client</span> — short-lived access token renews silently; a dead session bounces to login.</li>
+    <li><span class="ctrl">Own-data scoping · signed file links · PII encryption · rate limits · audit log</span> <span class="tag be">backend</span>.</li>
+  </ul>
+  <p class="muted">Not applicable in a browser: certificate pinning, screenshot blocking and app attestation (these are device-app controls). Passkeys are staff-only today.</p>
+
+  <h3 style="color:var(--clay)">3 · Staff Mobile app</h3>
+  <ul>
+    <li><span class="ctrl">Password + Multi-Factor Authentication (TOTP)</span> <span class="tag be">backend</span> — a second code from an authenticator app on top of the password.</li>
+    <li><span class="ctrl">Certificate pinning &amp; app attestation</span> <span class="tag cl">client</span>.</li>
+    <li><span class="ctrl">On-device hardening</span> <span class="tag cl">client</span> — secure keystore, screenshot block, root detection, obfuscation, biometric step-up.</li>
+    <li><span class="ctrl">Role-based access (RBAC)</span> <span class="tag be">backend</span> — each role (sales, designer, accounts, admin, CEO…) sees only what its job needs.</li>
+    <li><span class="ctrl">Segregation of duties / four-eyes &amp; step-up</span> <span class="tag be">backend</span> — the person who raises a payment can't also approve it; sensitive actions need a fresh check.</li>
+    <li><span class="ctrl">Bulk-read alerts · hash-chained audit · instant revocation · PII encryption</span> <span class="tag be">backend</span>.</li>
+  </ul>
+
+  <h3 style="color:var(--clay)">4 · Staff Web CRM</h3>
+  <ul>
+    <li><span class="ctrl">Password + MFA login challenge &amp; self-service enrolment</span> <span class="tag cl">client</span> + <span class="tag be">backend</span>.</li>
+    <li><span class="ctrl">Passkeys (WebAuthn / FIDO2)</span> <span class="tag cl">client</span> — phishing-resistant fingerprint/face/PIN sign-in; managed in-app. Shown only over HTTPS.</li>
+    <li><span class="ctrl">Step-up re-authentication</span> <span class="tag cl">client</span> — a "confirm it's you" prompt appears automatically before privileged actions and replays the request once confirmed.</li>
+    <li><span class="ctrl">RBAC · segregation of duties · signed payment webhooks</span> <span class="tag be">backend</span>.</li>
+    <li><span class="ctrl">Break-glass &amp; bulk-read alerts · hash-chained audit · PII encryption</span> <span class="tag be">backend</span>.</li>
+  </ul>
+</section>
+
+<!-- ============================ COMPARISON TABLE ============================ -->
+<section class="page">
+  <div class="sec"><span class="n">04</span> &nbsp; What each application has — comparison</div>
+  <p class="muted"><span class="yes">●</span> active &nbsp; <span class="part">◐</span> implemented, needs a production setting &nbsp; <span class="no">—</span> not applicable. &nbsp; <span class="tag be">backend</span> controls protect every app through the shared API.</p>
+  <table class="avoid">
+    <thead><tr><th style="width:38%">Control</th><th>Layer</th><th class="c">Cust.<br>Mobile</th><th class="c">Cust.<br>Web</th><th class="c">Staff<br>Mobile</th><th class="c">Staff<br>Web</th></tr></thead>
+    <tbody>
+      <tr class="grp"><td colspan="6">Identity &amp; login</td></tr>
+      <tr><td>Phone one-time-code (OTP) login</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td></tr>
+      <tr><td>Password + bcrypt hashing</td><td>backend</td><td class="c no">—</td><td class="c no">—</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Multi-factor auth (authenticator code)</td><td>both</td><td class="c no">—</td><td class="c no">—</td><td class="c part">◐</td><td class="c part">◐</td></tr>
+      <tr><td>Passkeys (WebAuthn / FIDO2)</td><td>client</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td><td class="c part">◐</td></tr>
+      <tr><td>Biometric step-up (on device)</td><td>client</td><td class="c yes">●</td><td class="c no">—</td><td class="c yes">●</td><td class="c no">—</td></tr>
+      <tr><td>Step-up re-auth on sensitive actions</td><td>both</td><td class="c part">◐</td><td class="c part">◐</td><td class="c part">◐</td><td class="c part">◐</td></tr>
+      <tr><td>Instant token revocation + refresh rotation</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+
+      <tr class="grp"><td colspan="6">Access control</td></tr>
+      <tr><td>Dual-BFF customer/staff boundary</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Role-based access control (RBAC)</td><td>backend</td><td class="c no">—</td><td class="c no">—</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Own-data scoping (anti-BOLA)</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Segregation of duties / four-eyes</td><td>backend</td><td class="c no">—</td><td class="c no">—</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+
+      <tr class="grp"><td colspan="6">Data protection</td></tr>
+      <tr><td>TLS / HTTPS in transit</td><td>both</td><td class="c yes">●</td><td class="c part">◐</td><td class="c yes">●</td><td class="c part">◐</td></tr>
+      <tr><td>TLS certificate pinning</td><td>client</td><td class="c part">◐</td><td class="c no">—</td><td class="c part">◐</td><td class="c no">—</td></tr>
+      <tr><td>PII field-level encryption (phone/email)</td><td>backend</td><td class="c part">◐</td><td class="c part">◐</td><td class="c part">◐</td><td class="c part">◐</td></tr>
+      <tr><td>Signed, expiring document links</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Upload content (magic-byte) validation</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Secure on-device token storage</td><td>client</td><td class="c yes">●</td><td class="c no">—</td><td class="c yes">●</td><td class="c no">—</td></tr>
+
+      <tr class="grp"><td colspan="6">App / client hardening</td></tr>
+      <tr><td>Bearer-only session isolation (no cookies)</td><td>client</td><td class="c yes">●</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td></tr>
+      <tr><td>Browser security headers</td><td>client</td><td class="c no">—</td><td class="c yes">●</td><td class="c no">—</td><td class="c yes">●</td></tr>
+      <tr><td>Screenshot / screen-record block</td><td>client</td><td class="c yes">●</td><td class="c no">—</td><td class="c yes">●</td><td class="c no">—</td></tr>
+      <tr><td>Root/jailbreak detection + obfuscation</td><td>client</td><td class="c yes">●</td><td class="c no">—</td><td class="c yes">●</td><td class="c no">—</td></tr>
+      <tr><td>Tapjacking / overlay protection</td><td>client</td><td class="c yes">●</td><td class="c no">—</td><td class="c yes">●</td><td class="c no">—</td></tr>
+      <tr><td>App attestation (App Check / Play Integrity)</td><td>both</td><td class="c part">◐</td><td class="c no">—</td><td class="c part">◐</td><td class="c no">—</td></tr>
+
+      <tr class="grp"><td colspan="6">Abuse &amp; fraud prevention</td></tr>
+      <tr><td>Login brute-force lockout + OTP caps</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Signed payment webhooks + idempotency</td><td>backend</td><td class="c part">◐</td><td class="c part">◐</td><td class="c part">◐</td><td class="c part">◐</td></tr>
+      <tr><td>Bulk-read / mass-export alerting</td><td>backend</td><td class="c no">—</td><td class="c no">—</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+
+      <tr class="grp"><td colspan="6">Monitoring, governance &amp; build</td></tr>
+      <tr><td>Tamper-evident (hash-chained) audit log</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Break-glass (super-admin) alerting</td><td>backend</td><td class="c no">—</td><td class="c no">—</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Least-privilege database role</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Secrets mgmt + fail-fast + secret scanning</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Privacy rights — DPDP consent/export/erasure</td><td>backend</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>CI security gates (SAST, deps, secrets, SBOM)</td><td>build</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+      <tr><td>Automated authorization tests (BOLA/BFLA)</td><td>build</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin-top:8px"><strong>Reading it:</strong> the customer apps deliberately have fewer login controls (passwordless OTP instead of MFA/passkeys) because customers are low-privilege and see only their own data. Staff apps carry heavier controls (MFA, passkeys, four-eyes, bulk-read alerts) because staff are higher-privilege and touch many customers' data.</p>
+</section>
+
+<!-- ============================ WHY (PLAIN ENGLISH) ============================ -->
+<section class="page why">
+  <div class="sec"><span class="n">05</span> &nbsp; Why each measure exists — in plain English</div>
+  <p class="muted">One line each: what it is, and the bad thing it prevents.</p>
+  <table class="avoid">
+    <thead><tr><th style="width:26%">Measure</th><th style="width:37%">What it is</th><th>Why we have it (the risk it stops)</th></tr></thead>
+    <tbody>
+      <tr><td>Phone OTP login</td><td>Log in with a one-time code texted to your phone.</td><td>No password exists to be stolen, guessed or reused from another leaked site.</td></tr>
+      <tr><td>Password + MFA</td><td>Password <em>plus</em> a rotating code from an authenticator app.</td><td>A stolen or guessed staff password alone is not enough to get in.</td></tr>
+      <tr><td>Passkeys</td><td>Sign in with fingerprint/face; no code to type.</td><td>Cannot be phished — there's no code or password to trick an employee into handing over.</td></tr>
+      <tr><td>Biometric / step-up</td><td>Re-confirm identity right before a risky action.</td><td>A phone left unlocked, or a hijacked session, still can't approve payments or deletes.</td></tr>
+      <tr><td>Instant revocation</td><td>Deactivating or demoting someone logs them out immediately.</td><td>A fired or compromised account loses access now, not whenever their token expires.</td></tr>
+      <tr><td>Dual-BFF boundary</td><td>Customer and staff logins are different, non-swappable keys.</td><td>A customer can never reach staff-only data, and vice-versa — even if code has a bug.</td></tr>
+      <tr><td>RBAC (roles)</td><td>Each staff role can do only its own job's tasks.</td><td>A designer can't touch finances; a junior can't delete accounts. Limits insider damage.</td></tr>
+      <tr><td>Own-data scoping</td><td>You can only load records that belong to you.</td><td>Stops "change the ID in the URL to see someone else's project" (a top web flaw, BOLA).</td></tr>
+      <tr><td>Four-eyes / segregation</td><td>Creator and approver of money actions must differ.</td><td>Stops one person quietly paying themselves or a fake vendor.</td></tr>
+      <tr><td>TLS / HTTPS</td><td>All traffic is encrypted end to end.</td><td>No one on the Wi-Fi or network can read or tamper with data in transit.</td></tr>
+      <tr><td>Certificate pinning</td><td>The app only trusts our exact server certificate.</td><td>Blocks fake "look-alike" servers and man-in-the-middle interception.</td></tr>
+      <tr><td>PII encryption at rest</td><td>Phone/email are encrypted inside the database.</td><td>If the database is ever stolen or leaked, personal contact details stay unreadable.</td></tr>
+      <tr><td>Signed file links</td><td>Documents open via short-lived, one-off links.</td><td>Files aren't sitting at public URLs anyone could find or share forever.</td></tr>
+      <tr><td>Upload validation</td><td>Checks a file's real type, not its name.</td><td>Stops malware disguised as an image or PDF from being uploaded.</td></tr>
+      <tr><td>Secure device storage</td><td>Tokens live in the phone's keychain/keystore.</td><td>Another app or a lost phone can't simply read the login token off disk.</td></tr>
+      <tr><td>Screenshot block</td><td>Sensitive screens can't be captured.</td><td>Prevents shoulder-surfing screenshots and screen-recording malware leaking data.</td></tr>
+      <tr><td>Bearer-only isolation</td><td>The customer portal sends no cookies.</td><td>The customer and staff web apps can share a server yet never share a session.</td></tr>
+      <tr><td>Security headers</td><td>Browser rules against framing/sniffing.</td><td>Stops clickjacking (invisible overlays) and content-type tricks in the browser.</td></tr>
+      <tr><td>Root / attestation</td><td>Detect tampered devices; verify the genuine app.</td><td>The backend refuses calls from fake, cloned or bot versions of the app.</td></tr>
+      <tr><td>Brute-force lockout</td><td>Too many wrong tries locks the attempt.</td><td>Stops automated password/OTP guessing.</td></tr>
+      <tr><td>Signed webhooks</td><td>Payment notifications are cryptographically verified.</td><td>A fake "payment received" message can't mark an unpaid order as paid.</td></tr>
+      <tr><td>Bulk-read alert</td><td>Flags a staff account reading many records at once.</td><td>Early warning of an insider or hijacked account scraping customer data.</td></tr>
+      <tr><td>Hash-chained audit</td><td>Every action is logged in a tamper-evident chain.</td><td>You can trust the record — no one can silently edit or delete history.</td></tr>
+      <tr><td>Least-privilege DB</td><td>The app's DB account can't alter the schema.</td><td>A compromised app can't drop tables or wreck the database structure.</td></tr>
+      <tr><td>Secrets management</td><td>Keys live in config, never in code; app checks them.</td><td>No passwords/keys leak through the code repository; weak setups won't start.</td></tr>
+      <tr><td>DPDP privacy rights</td><td>Customers can view, export and delete their data.</td><td>Meets India's DPDP Act and builds trust; avoids regulatory penalties.</td></tr>
+      <tr><td>CI security gates</td><td>Every code change is auto-scanned before merge.</td><td>Catches vulnerable libraries, leaked secrets and risky code early, automatically.</td></tr>
+      <tr><td>AuthZ tests</td><td>Robots continuously try to access others' data.</td><td>Proves, on every change, that access rules still hold — no silent regressions.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================ KNOWN GAPS / ROADMAP ============================ -->
+<section class="page">
+  <div class="sec"><span class="n">06</span> &nbsp; Known gaps &amp; 90-day roadmap</div>
+  <p class="lead">The controls are built; most remaining work is <strong>switching them on in production</strong> and <strong>hardening the hosting</strong>. This is the honest "what's left" — presented as a prioritised plan.</p>
+  <table class="avoid">
+    <thead><tr><th class="c" style="width:44px">Pri.</th><th style="width:26%">Gap / ◐ item</th><th style="width:30%">Why it matters (plain English)</th><th>Recommended action</th></tr></thead>
+    <tbody>
+      <tr><td class="c"><span class="no" style="color:var(--rose)">P1</span></td><td>Running on HTTP (no HTTPS/domain yet)</td><td>Traffic isn't encrypted end-to-end, and passkeys can't switch on without it.</td><td>Point a domain at the server, add a free TLS certificate (Let's Encrypt via the existing proxy), enable HSTS.</td></tr>
+      <tr><td class="c"><span class="no" style="color:var(--rose)">P1</span></td><td>MFA offered but not enforced for staff</td><td>A stolen staff password alone could still log in until MFA is mandatory.</td><td>Require MFA (or a passkey) for all staff; set <code>STEP_UP_ENABLED</code> once enrolled.</td></tr>
+      <tr><td class="c"><span class="no" style="color:var(--rose)">P1</span></td><td>Database port is exposed to the internet</td><td>The database shouldn't be directly reachable from outside.</td><td>Firewall port 5432 to trusted IPs only (or close it); use an SSH tunnel for admin.</td></tr>
+      <tr><td class="c"><span class="part">P2</span></td><td>PII encryption key held in an env file</td><td>The key should be as protected as the data it unlocks.</td><td>Move the key to a managed KMS/secret manager; define a rotation policy; run the encryption backfill.</td></tr>
+      <tr><td class="c"><span class="part">P2</span></td><td>Mobile app attestation &amp; cert-pinning not yet keyed</td><td>Until configured, the backend can't fully verify the genuine app / block fake servers.</td><td>Configure App Check / Play Integrity keys and certificate pins in the mobile builds.</td></tr>
+      <tr><td class="c"><span class="part">P2</span></td><td>Shared VPS behind a Traefik panel</td><td>The CRM shares a host with other tools; less isolation, port contention on reboot.</td><td>Give the CRM its own host/VPC or at least dedicated routing; add a WAF + edge rate-limiting (e.g. Cloudflare).</td></tr>
+      <tr><td class="c"><span class="part">P2</span></td><td>No independent penetration test yet</td><td>Internal testing isn't the same as an outside expert trying to break in.</td><td>Commission a VAPT of the 4 apps + API against OWASP ASVS / MASVS; fix findings.</td></tr>
+      <tr><td class="c"><span class="part">P2</span></td><td>Payment gateway controls pending go-live</td><td>Signed webhooks + four-eyes are built but inert until the gateway is wired.</td><td>Set the webhook secret and confirm/refund thresholds when the gateway is enabled.</td></tr>
+      <tr><td class="c"><span class="yes" style="color:var(--slate)">P3</span></td><td>Central monitoring / SIEM &amp; incident response</td><td>Alerts exist, but not yet aggregated or rehearsed.</td><td>Ship audit/security events to a monitoring tool; write and tabletop an incident-response plan.</td></tr>
+      <tr><td class="c"><span class="yes" style="color:var(--slate)">P3</span></td><td>Backups &amp; disaster-recovery drill</td><td>Backups are only proven when a restore is actually tested.</td><td>Automate DB backups off-box; schedule a quarterly restore test; set RTO/RPO targets.</td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin-top:8px"><strong>P1</strong> = do first (this month) · <strong>P2</strong> = next 1–2 months · <strong>P3</strong> = as you scale. Use this table to structure the CISO conversation — and to ask which order <em>they'd</em> tackle it in.</p>
+</section>
+
+<!-- ============================ CISO QUESTIONS ============================ -->
+<section class="page q">
+  <div class="sec"><span class="n">07</span> &nbsp; Questions &amp; areas to raise with the CISO</div>
+  <p class="lead">A focused list to pressure-test the design and find the highest-value next steps. Grouped by theme; the ones marked ★ are the highest-leverage for a small team.</p>
+
+  <h4>A. Threat model &amp; priorities ★</h4>
+  <ol>
+    <li>Given we hold customers' contact details, designs and payment status, what would you consider our <strong>top three realistic threats</strong> — and are we spending effort in the right places?</li>
+    <li>For a business our size, what's the <strong>minimum viable security bar</strong> you'd insist on before we onboard real customers at scale?</li>
+    <li>Where are we <strong>over-engineering</strong> (spending effort with low payoff) versus <strong>under-investing</strong>?</li>
+  </ol>
+
+  <h4>B. Identity, authentication &amp; sessions ★</h4>
+  <ol>
+    <li>Should we <strong>mandate MFA/passkeys for all staff</strong> now, and enforce it (not just offer it)? Any exceptions?</li>
+    <li>Is <strong>phone-OTP</strong> a sufficient customer login, or do you want an option for email OTP / social login / step-up for payments? How should we handle <strong>SIM-swap</strong> risk?</li>
+    <li>Are our <strong>token lifetimes and refresh rotation</strong> sensible? Should we add device binding or re-auth on new devices?</li>
+    <li>How should we handle <strong>account recovery</strong> for staff and customers without opening a social-engineering hole?</li>
+  </ol>
+
+  <h4>C. Data protection &amp; privacy (DPDP) ★</h4>
+  <ol>
+    <li>Our PII encryption uses a key in our secrets store. Do you require a <strong>managed KMS/HSM</strong>, key rotation policy, and separation of duties for key access?</li>
+    <li>What's your guidance on <strong>data retention &amp; minimisation</strong> — how long should we keep leads, chats and documents, and when must we purge?</li>
+    <li>Are we correctly positioned as <strong>Data Fiduciary</strong> under India's DPDP Act? What consent, breach-notification and grievance processes do we still need?</li>
+    <li>Should customer PII beyond phone/email (addresses, designs) also be encrypted at rest?</li>
+  </ol>
+
+  <h4>D. Infrastructure, hosting &amp; network</h4>
+  <ol>
+    <li>We're on a single VPS with a reverse proxy (Traefik) shared with other tools. Do you recommend <strong>separating the app onto its own host/VPC</strong>, and putting a WAF / rate-limiter (e.g., Cloudflare) in front?</li>
+    <li>What's your baseline for <strong>network segmentation, firewalling and exposed ports</strong> (our database port is currently reachable)?</li>
+    <li>Requirements for <strong>TLS</strong> (min version, HSTS, certificate management/renewal) once we move to a domain?</li>
+    <li>How should we manage <strong>secrets in production</strong> — move from env files to a secrets manager?</li>
+  </ol>
+
+  <h4>E. Application &amp; API security</h4>
+  <ol>
+    <li>Would you commission an <strong>independent penetration test</strong> of the four apps + API, and how often? Any preferred scope/standard (OWASP ASVS / MASVS level)?</li>
+    <li>Are our <strong>rate-limiting and anti-automation</strong> controls adequate at the edge, not just per-account?</li>
+    <li>How rigorously should we implement <strong>CSP, CORS and anti-CSRF</strong> for the two web apps?</li>
+    <li>For the mobile apps, what's your bar for <strong>certificate pinning, attestation and anti-tamper</strong> — enough as-is, or hardened further?</li>
+  </ol>
+
+  <h4>F. Monitoring, detection &amp; incident response ★</h4>
+  <ol>
+    <li>We have a tamper-evident audit log and some alerts (break-glass, bulk-read). What <strong>security events</strong> would you want centralised into a SIEM/alerting tool, and what's a realistic setup for a small team?</li>
+    <li>Do we need a written, tested <strong>incident-response plan</strong> and breach-notification runbook? Would you help us tabletop it?</li>
+    <li>What are your expectations for <strong>backups, disaster recovery and RTO/RPO</strong>, and how often should we test restores?</li>
+    <li>How do we detect and respond to a <strong>compromised staff account or insider threat</strong> quickly?</li>
+  </ol>
+
+  <h4>G. Supply chain &amp; secure development</h4>
+  <ol>
+    <li>We run SAST, dependency, secret scanning and SBOM in CI. Do you want <strong>gated builds, signed artifacts, and a vulnerability-response SLA</strong>?</li>
+    <li>How should we manage <strong>third-party and AI-assisted code</strong> review and approvals before production?</li>
+    <li>Guidance on <strong>dependency and base-image patching cadence</strong>?</li>
+  </ol>
+
+  <h4>H. Payments &amp; fraud</h4>
+  <ol>
+    <li>As we enable the payment gateway, what <strong>controls beyond signed webhooks and four-eyes</strong> do you expect (limits, anomaly detection, reconciliation)?</li>
+    <li>Any <strong>PCI-DSS scope</strong> we must be mindful of even when using a hosted gateway?</li>
+  </ol>
+
+  <h4>I. Governance, people &amp; compliance</h4>
+  <ol>
+    <li>What lightweight <strong>security policies</strong> (access, onboarding/offboarding, acceptable use, vendor risk) should a company our size have first?</li>
+    <li>What <strong>security-awareness training</strong> do you recommend for our staff (phishing especially)?</li>
+    <li>Are there <strong>certifications or attestations</strong> (ISO 27001, SOC 2, VAPT report) our future customers/partners will ask for — and when should we start?</li>
+  </ol>
+
+  <div class="note" style="margin-top:14px">
+    <strong>One closing question worth asking:</strong> "If you had a limited budget to spend on <em>one</em> improvement to these four applications in the next 90 days, what would it be?" — it turns the conversation into a concrete, prioritised action.
+  </div>
+</section>
+
+</body>
+</html>
