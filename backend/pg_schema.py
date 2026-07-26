@@ -586,6 +586,29 @@ SCHEMA: dict[str, dict] = {
             {"cols": [("status", 1)], "unique": False},
         ],
     },
+    # <table name="contact_change_requests">
+    #   <purpose>Right to correction (DPDP §12): a customer changing their email or
+    #   phone must verify the NEW value with a one-time code before it takes effect,
+    #   so an account can't be silently re-pointed. Only the code hash is stored.</purpose>
+    # </table>
+    "contact_change_requests": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "customer_id": "TEXT",
+            "field": "TEXT",          # "email" | "phone"
+            "new_value": "TEXT",      # the new value being verified (normalized for phone)
+            "otp_hash": "TEXT",
+            "expires_at": "TEXT",
+            "attempts": "INTEGER",
+            "consumed": "BOOLEAN",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("customer_id", 1)], "unique": False},
+        ],
+    },
 
     # <table name="customer_otps">
     #   <purpose>
