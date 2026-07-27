@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   ij_core:
-    path: ../../packages/ij_core
+    path: ../../shared/mobile-core
   # Push notifications. Present as deps so the code compiles; FCM stays OFF until
   # kFirebaseConfigured is flipped (see lib/src/push/push_config.dart + PUSH_SETUP.md).
   firebase_core: ^3.6.0

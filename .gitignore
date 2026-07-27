@@ -80,6 +80,8 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/frontend/node_modules/.cache/default-development/0.pack
+# Flutter/Dart ignores live per-project in apps/*-mobile/.gitignore and
+# shared/mobile-core/.gitignore (idiomatic; moved out of the old mobile/.gitignore).
 .env
 .env.*
 *.env

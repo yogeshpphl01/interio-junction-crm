@@ -1,7 +1,7 @@
 # Interio Junction — Customer Portal
 
 The **customer-facing** web app: the second half of the dual-BFF, running as a
-**separate application** alongside the company CRM (`../frontend`) on the same
+**separate application** alongside the company CRM (`../staff-web`) on the same
 server and against the same backend.
 
 - **Who logs in:** customers (your leads/clients), with **phone + one-time code**
@@ -23,7 +23,7 @@ the staff and customer sessions never share a cookie jar. See `src/lib/api.js`.
 
 ## Stack
 
-React 19 + Vite + Tailwind (same toolchain as `../frontend`, deliberately kept
+React 19 + Vite + Tailwind (same toolchain as `../staff-web`, deliberately kept
 dependency-light — no component library). Custom UI primitives live in
 `src/components/ui.jsx`.
 
@@ -57,7 +57,7 @@ npm run build      # -> build/  (static site)
 
 In production this is built and served by `Dockerfile` (Vite → nginx). The
 `client-portal` service in the repo's root `docker-compose.yml` runs it on
-`CLIENT_WEB_PORT` (default **8080**). See `../DEPLOYMENT.md`.
+`CLIENT_WEB_PORT` (default **8080**). See `../../DEPLOYMENT.md`.
 
 ## Optional backend flags this app honours
 

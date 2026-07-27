@@ -3,20 +3,26 @@
 Two Flutter apps on one FastAPI backend, following the dual-BFF boundary in
 `docs/mobile-apps/API_CONTRACT.md`:
 
-- **`apps/client_app`** — the customer app. Phone + OTP login, view/accept
+- **`apps/customer-mobile`** — the customer app. Phone + OTP login, view/accept
   estimates, follow design/payments/project.
-- **`apps/company_app`** — the employee app. Email/password login, role-aware
+- **`apps/staff-mobile`** — the employee app. Email/password login, role-aware
   work queue, run the pipeline.
-- **`packages/ij_core`** — shared Dart: API client (with token auto-refresh),
-  secure token storage, auth repositories, and models. Both apps depend on it, so
-  the contract is implemented once.
+- **`shared/mobile-core`** — shared Dart package (`ij_core`): API client (with
+  token auto-refresh), secure token storage, auth repositories, and models. Both
+  apps depend on it, so the contract is implemented once.
 
 ```
-mobile/
-├── packages/ij_core/          # shared: api_client, token_store, auth, models
-├── apps/client_app/           # customer app  (customer_access identity)
-└── apps/company_app/          # employee app  (access identity)
+repo root/
+├── apps/
+│   ├── customer-mobile/       # customer app  (customer_access identity)
+│   └── staff-mobile/          # employee app  (access identity)
+└── shared/
+    └── mobile-core/           # shared package `ij_core`: api_client, token_store, auth, models
 ```
+
+The apps import the shared package as `package:ij_core/…` (its Dart package name
+is still `ij_core`); each app's `pubspec.yaml` points at it via
+`path: ../../shared/mobile-core`.
 
 > **Status: scaffolding.** This is a runnable skeleton wired to the API contract —
 > the shared core, both auth flows, and both home screens. There is **no Flutter
@@ -36,11 +42,11 @@ This repo ships each app's `lib/` + `pubspec.yaml`. The platform folders
 
 ```bash
 # 1) Shared package
-cd mobile/packages/ij_core && flutter pub get
+cd shared/mobile-core && flutter pub get
 
 # 2) Each app: generate platform folders, then fetch deps
-cd ../../apps/client_app  && flutter create . && flutter pub get
-cd ../company_app         && flutter create . && flutter pub get
+cd ../../apps/customer-mobile && flutter create . && flutter pub get
+cd ../staff-mobile           && flutter create . && flutter pub get
 
 # 3) Point the app at your backend (defaults to the Android-emulator host loopback)
 flutter run --dart-define=IJ_API_BASE=http://10.0.2.2:8000/api      # Android emulator
