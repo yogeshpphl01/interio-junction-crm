@@ -1,22 +1,21 @@
 # Flutter / Dart
 .dart_tool/
 .packages
-build/
 .flutter-plugins
 .flutter-plugins-dependencies
 pubspec.lock
+build/
 
 # Generated platform folders (run `flutter create .` locally to regenerate)
-**/android/
-**/ios/
-**/linux/
-**/macos/
-**/windows/
-**/web/
+android/
+ios/
+linux/
+macos/
+windows/
+web/
 
 # Firebase native config is generated per-project by flutterfire configure.
-# (firebase_options.dart IS committed — a placeholder now, real values later;
-#  it holds only public client identifiers, not secrets.)
+# (firebase_options.dart IS committed — placeholder values, public client ids only.)
 **/google-services.json
 **/GoogleService-Info.plist
 

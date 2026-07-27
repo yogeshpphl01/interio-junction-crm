@@ -91,10 +91,12 @@ services:
       - "8000"
 
   # <service name="frontend"> COMPANY app: Nginx serving the staff CRM + proxying
-  #   /api -> backend. Staff sign in with email + password. </service>
+  #   /api -> backend. Staff sign in with email + password. Code: apps/staff-web/.
+  #   (Service kept named "frontend" so existing container names / deploy commands
+  #   keep working; the source folder is now apps/staff-web.) </service>
   frontend:
     build:
-      context: ./frontend
+      context: ./apps/staff-web
       args:
         REACT_APP_BACKEND_URL: ""   # same-origin; nginx proxies /api
     restart: unless-stopped
@@ -111,10 +113,12 @@ services:
   #   Nginx, its own host port — talks to the SAME shared backend + database.
   #   Default URL: http://YOUR_SERVER_IP:8080/  (override with CLIENT_WEB_PORT).
   #   To give it a clean address, point a subdomain (e.g. portal.yourdomain.com)
-  #   at this port from your reverse proxy — see DEPLOYMENT.md. </service>
+  #   at this port from your reverse proxy — see DEPLOYMENT.md. Code: apps/customer-web/.
+  #   (Service kept named "client-portal" for deploy stability; source is now
+  #   apps/customer-web.) </service>
   client-portal:
     build:
-      context: ./client-portal
+      context: ./apps/customer-web
       args:
         REACT_APP_BACKEND_URL: ""   # same-origin; nginx proxies /api
     restart: unless-stopped

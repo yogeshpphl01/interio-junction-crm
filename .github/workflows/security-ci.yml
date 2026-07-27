@@ -128,7 +128,7 @@ jobs:
       # can be re-added later pinned to a specific released tag or commit SHA.)
       - name: resolve + audit each app
         run: |
-          for app in mobile/apps/client_app mobile/apps/company_app mobile/packages/ij_core; do
+          for app in apps/customer-mobile apps/staff-mobile shared/mobile-core; do
             echo "== $app =="
             (cd "$app" && flutter pub get && dart pub outdated || true)
           done

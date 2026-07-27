@@ -19,7 +19,7 @@ guide turns delivery on.
   3. on logout, unregisters the token server-side and deletes it locally;
   4. routes notification taps through `main.dart`'s `onOpen` (`data['type']`).
 
-## Steps (per app: `apps/client_app` and `apps/company_app`)
+## Steps (per app: `apps/customer-mobile` and `apps/staff-mobile`)
 
 1. **Create a Firebase project** (one project can host both apps as two Firebase
    "apps"). https://console.firebase.google.com
