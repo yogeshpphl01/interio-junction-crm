@@ -34,6 +34,7 @@ const NAV = [
   { to: "/notifications", label: "Notifications", icon: Bell, roles: ["ceo", "admin"], perm: "notifications.manage" },
   { to: "/analytics", label: "Analytics", icon: BarChart3, roles: ["ceo", "admin"], perm: "analytics.company" },
   { to: "/audit", label: "Audit Log", icon: ScrollText, roles: ["ceo", "admin"], perm: "audit.view" },
+  { to: "/privacy", label: "Privacy", icon: ShieldCheck, roles: ["ceo", "admin"], perm: "users.manage" },
   { to: "/settings", label: "Settings", icon: Settings, roles: ["ceo", "admin"], perm: ["users.manage", "roles.manage"] },
 ];
 
