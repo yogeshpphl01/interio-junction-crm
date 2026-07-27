@@ -84,16 +84,16 @@ A scheduled **retention job** runs daily: flags enquiry-only leads older than 6 
 
 ## 7. Security-by-design, Privacy-by-design, PII & ISMS
 
-- **Security by Design (item 5):** the dual-BFF boundary, RBAC, least-privilege DB, encryption, signed URLs, MFA/passkeys, step-up, audit log, CI security gates — all built in from the start, not bolted on. See `THREAT_MODEL.md`, `SECURITY_CI.md`.
-- **Privacy by Design (item 7):** data minimization (collect only what a purpose needs), purpose limitation (separate consents), default-off optional purposes, encryption of PII, short retention for enquiries, easy withdrawal, transparency via the notice.
-- **PII Security (item 1):** AES-256-GCM field encryption + blind index for phone/email; masking in staff views on the roadmap; access-scoped; bulk-read alerts; PII never in logs.
+- **Security by Design (item 5):** the dual-BFF boundary, RBAC, least-privilege DB, encryption, signed URLs, MFA/passkeys, step-up, audit log, CI security gates — all built in from the start, not bolted on. Principle-by-principle mapping in **[`SECURITY_BY_DESIGN.md`](SECURITY_BY_DESIGN.md)**; see also `THREAT_MODEL.md`, `SECURITY_CI.md`.
+- **Privacy by Design (item 7):** data minimization, purpose limitation (separate consents), default-off optional purposes, encryption of PII, short retention for enquiries, easy withdrawal, transparency via the notice. The 7 foundational principles mapped in **[`PRIVACY_BY_DESIGN.md`](PRIVACY_BY_DESIGN.md)**.
+- **PII Security (item 1):** AES-256-GCM field encryption + blind index for phone/email; access-scoped; PII never in logs. Full inventory, classification and disposal in **[`PII_HANDLING.md`](PII_HANDLING.md)**.
 - **Role-Based Access (item 6):** permission catalog + roles (sales, designer, accounts, supervisor, admin, CEO, system_admin); four-eyes on money; least privilege — see `permissions.py`.
-- **ISMS (item 4):** lightweight ISO-27001-aligned management system — policies, asset & risk register, access control, incident response (`INCIDENT_RESPONSE.md`), backup/DR (`BACKUP_DR.md`), data retention (this doc + `DATA_RETENTION.md`), and a review cadence. Documented in `ISMS.md` (roadmap).
-- **Information Security (item 3):** the controls catalogued in `Interio_Junction_Security_Overview.pdf`.
+- **ISMS (item 4):** lightweight ISO-27001-aligned management system — policies, asset & risk register, access control, incident response (`INCIDENT_RESPONSE.md`), backup/DR (`BACKUP_DR.md`), data retention (`DATA_RETENTION.md`), and a review cadence. Documented in **[`ISMS.md`](ISMS.md)**.
+- **Information Security (item 3):** the organisation-level policy and control domains are in **[`INFORMATION_SECURITY_POLICY.md`](INFORMATION_SECURITY_POLICY.md)** (with `Interio_Junction_Security_Overview.pdf`).
 
 ## 8. Breach response (72-hour rule)
 
-On a suspected breach: contain → assess → **notify the DPB without delay and a full report within 72 hours** (nature, extent, timing, impact, remediation, root cause) → notify affected principals (what happened, likely impact, steps taken, what they can do, contact). Runbook: `INCIDENT_RESPONSE.md` (to be updated with the 72-hour DPB workflow).
+On a suspected breach: contain → assess → **notify the DPB without delay and a full report within 72 hours** (nature, extent, timing, impact, remediation, root cause) → notify affected principals (what happened, likely impact, steps taken, what they can do, contact). Runbook: [`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md).
 
 ## 9. Children's data
 
@@ -103,17 +103,17 @@ Our service targets adults (homeowners). We will (a) state the service is not di
 
 | # | Requested | Design | Status |
 |---|---|---|---|
-| 1 | PII Security | AES-256-GCM + blind index (phone/email); masking + address on roadmap | Partly built → extend |
-| 2 | DPDPA across 4 apps | This blueprint + consent/rights build | New build |
-| 3 | Information Security | Controls per `Security_Overview.pdf` | Built → document |
-| 4 | ISMS | Lightweight ISO-27001-aligned pack | New docs |
-| 5 | Security by Design | Baked in (dual-BFF, RBAC, encryption, CI) | Built → document |
-| 6 | Role-Based Access | `permissions.py` roles + four-eyes | Built → deepen |
-| 7 | Privacy by Design | Minimization, purpose limitation, default-off | New build + docs |
-| 8 | Consent management + custom consent + retention (6mo/10yr) + AI/analytics | §4–§5 + notice in §11; **AI = separate opt-in** | New build |
-| 9 | Email & phone change | Self-service correction with OTP verify | New build |
-| 10 | Delete data (enquiry-only) | Self-service erasure for leads w/o a project | New build |
-| 11 | 3 failed → email+phone OTP reset | Attempt counter → OTP fallback | New build |
+| 1 | PII Security | AES-256-GCM + blind index (phone/email); inventory + disposal — [`PII_HANDLING.md`](PII_HANDLING.md) | ✅ Built + documented |
+| 2 | DPDPA across 4 apps | Consent + rights UI in all four apps + backend | ✅ Built |
+| 3 | Information Security | Policy + control domains — [`INFORMATION_SECURITY_POLICY.md`](INFORMATION_SECURITY_POLICY.md) | ✅ Documented |
+| 4 | ISMS | ISO-27001-aligned pack — [`ISMS.md`](ISMS.md) | ✅ Documented |
+| 5 | Security by Design | Principle→control map — [`SECURITY_BY_DESIGN.md`](SECURITY_BY_DESIGN.md) | ✅ Built + documented |
+| 6 | Role-Based Access | `permissions.py` roles + four-eyes | ✅ Built |
+| 7 | Privacy by Design | 7 principles mapped — [`PRIVACY_BY_DESIGN.md`](PRIVACY_BY_DESIGN.md) | ✅ Built + documented |
+| 8 | Consent management + custom consent + retention (6mo/10yr) + AI/analytics | Catalog (AI = separate opt-in) + retention engine (`retention.py`) | ✅ Built |
+| 9 | Email & phone change | Self-service correction with OTP-to-new-value | ✅ Built (web + mobile) |
+| 10 | Delete data (enquiry-only) | Immediate self-service erasure; project clients queued | ✅ Built |
+| 11 | 3 failed → email+phone OTP reset | Change-password lockout → dual-channel OTP reset | ✅ Built (backend + web + mobile) |
 
 ---
 
