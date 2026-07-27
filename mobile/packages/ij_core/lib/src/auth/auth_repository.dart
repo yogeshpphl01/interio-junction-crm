@@ -96,6 +96,13 @@ class EmployeeAuthRepository {
     return ((d['backup_codes'] as List?) ?? const []).cast<String>();
   }
 
+  /// Re-verify the second factor for a sensitive action (e.g. a DPDP erasure).
+  /// Returns a short-lived elevation token to send as `X-Step-Up-Token`.
+  Future<String> stepUp(String code) async {
+    final d = await api.post('/auth/mfa/step-up', body: {'code': code}) as Map<String, dynamic>;
+    return d['elevation_token'] as String;
+  }
+
   Future<void> registerDevice(String fcmToken, {String? platform}) =>
       api.post('/devices', body: {'token': fcmToken, 'platform': platform});
 

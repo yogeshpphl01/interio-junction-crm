@@ -6,6 +6,7 @@ import '../auth/login_screen.dart';
 import '../auth/mfa_screens.dart';
 import 'worklist_screen.dart';
 import 'projects_screen.dart';
+import 'privacy_queue_screen.dart';
 
 /// The signed-in employee shell: Work (role-aware worklist) + Projects
 /// (production / site-ops). One AppBar with sign-out; push registration happens
@@ -22,10 +23,24 @@ class _CompanyShellState extends State<CompanyShell> {
   static const _titles = ['My Work', 'Projects'];
   final _tabs = const [WorklistTab(), ProjectsTab()];
 
+  // Only admins (users.manage) see the DPDP erasure queue on this device.
+  bool _canManagePrivacy = false;
+
   @override
   void initState() {
     super.initState();
     PushService.instance.registerAfterLogin(Services.i.auth.registerDevice);
+    _loadPermissions();
+  }
+
+  Future<void> _loadPermissions() async {
+    try {
+      final me = await Services.i.data.me();
+      final perms = ((me['permissions'] as List?) ?? const []).cast<String>();
+      if (mounted) setState(() => _canManagePrivacy = perms.contains('users.manage'));
+    } catch (_) {
+      // Non-fatal: without the flag we simply hide the privacy queue.
+    }
   }
 
   Future<void> _logout() async {
@@ -44,6 +59,13 @@ class _CompanyShellState extends State<CompanyShell> {
       appBar: AppBar(
         title: Text(_titles[_index]),
         actions: [
+          if (_canManagePrivacy)
+            IconButton(
+              icon: const Icon(Icons.shield_outlined),
+              tooltip: 'Data erasure requests',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PrivacyQueueScreen())),
+            ),
           IconButton(
             icon: const Icon(Icons.security),
             tooltip: 'Two-factor auth',

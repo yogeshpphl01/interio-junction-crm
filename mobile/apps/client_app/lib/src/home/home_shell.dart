@@ -7,6 +7,7 @@ import 'projects_screen.dart';
 import 'estimates_screen.dart';
 import 'designs_screen.dart';
 import 'payments_screen.dart';
+import 'privacy_screen.dart';
 
 /// The signed-in customer shell: four tabs over the Client BFF, one AppBar with
 /// sign-out. Tabs are kept alive by IndexedStack so switching doesn't reload.
@@ -47,6 +48,13 @@ class _HomeShellState extends State<HomeShell> {
       appBar: AppBar(
         title: Text(_titles[_index]),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.shield_outlined),
+            tooltip: 'Privacy & consent',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PrivacyScreen()),
+            ),
+          ),
           IconButton(icon: const Icon(Icons.logout), tooltip: 'Sign out', onPressed: _logout),
         ],
       ),

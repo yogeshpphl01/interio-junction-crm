@@ -35,6 +35,28 @@ class ClientRepository {
 
   Future<void> requestDesignChanges(String revId, String feedback) =>
       api.post('/client/designs/$revId/request-changes', body: {'feedback': feedback});
+
+  // ---- DPDP: consent + data-subject rights ----
+  Future<Map<String, dynamic>> consent() async =>
+      (await api.get('/client/me/consent')) as Map<String, dynamic>;
+
+  Future<void> setConsent(String purpose, bool granted) =>
+      api.post('/client/me/consent', body: {'purpose': purpose, 'granted': granted});
+
+  Future<Map<String, dynamic>> exportData() async =>
+      (await api.get('/client/me/export')) as Map<String, dynamic>;
+
+  /// Right to erasure. Returns {status: "erased" | "pending", message}.
+  Future<Map<String, dynamic>> requestErasure({String? reason}) async =>
+      (await api.post('/client/me/erasure-request', body: {'reason': reason ?? ''}))
+          as Map<String, dynamic>;
+
+  /// Right to correction: change email/phone, verified by an OTP to the new value.
+  Future<void> changeContactStart(String field, String newValue) =>
+      api.post('/client/me/change-contact', body: {'field': field, 'new_value': newValue});
+
+  Future<void> changeContactVerify(String field, String code) =>
+      api.post('/client/me/change-contact/verify', body: {'field': field, 'code': code});
 }
 
 /// Company App data reads (employee identity).
@@ -159,4 +181,27 @@ class CompanyRepository {
 
   Future<void> resolveTicket(String id, {String? note, bool remanufacture = false}) =>
       api.post('/tickets/$id/resolve', body: {'note': note, 'remanufacture': remanufacture});
+
+  // ---- DPDP: current user + erasure queue (staff, needs users.manage) ----
+  /// The signed-in employee, enriched with `permissions` — used to decide whether
+  /// to surface the privacy queue on this device.
+  Future<Map<String, dynamic>> me() async =>
+      (await api.get('/auth/me')) as Map<String, dynamic>;
+
+  /// Pending (or `status`) DPDP erasure requests for staff to action.
+  Future<List<Map<String, dynamic>>> erasureRequests({String status = 'pending'}) async {
+    final d = await api.get('/erasure-requests', query: {'status': status});
+    return (d as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Fulfil an erasure (anonymize customer + leads). A fresh step-up token is
+  /// attached as `X-Step-Up-Token` when the server requires one.
+  Future<Map<String, dynamic>> eraseCustomer(String customerId, {String? stepUpToken}) async =>
+      (await api.post('/customers/$customerId/erase',
+              headers: stepUpToken == null ? null : {'X-Step-Up-Token': stepUpToken}))
+          as Map<String, dynamic>;
+
+  /// Reject an erasure request (e.g. an active project with dues); reason logged.
+  Future<Map<String, dynamic>> rejectErasure(String requestId) async =>
+      (await api.post('/erasure-requests/$requestId/reject')) as Map<String, dynamic>;
 }
