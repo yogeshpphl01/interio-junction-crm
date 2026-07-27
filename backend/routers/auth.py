@@ -23,11 +23,24 @@ from auth_utils import (
     verify_password, hash_password, create_access_token, create_refresh_token,
     set_auth_cookies, clear_auth_cookies, decode_token, create_mfa_pending_token,
 )
-from notifications import send_password_reset_otp
+from notifications import send_password_reset_otp, send_sms_otp
 from app_check import require_app_check
 from audit import log_audit
+from pydantic import BaseModel
 
 router = APIRouter()
+
+# <pw-change-lockout> item 11: after PW_CHANGE_MAX_FAILED wrong current-password
+#   tries, the ordinary change-password path is locked and the user must reset via
+#   a one-time code sent to BOTH their recovery email and phone. Distinct from the
+#   login lockout above (that throttles sign-in; this guards the change flow). </pw-change-lockout>
+PW_CHANGE_MAX_FAILED = 3
+
+
+class PwResetVerifyInput(BaseModel):
+    """Complete a change-password OTP reset: the code (sent to email+phone) + new password."""
+    otp: str
+    new_password: str
 
 # <otp-policy> Self-service password reset tunables (email channel for now). </otp-policy>
 OTP_TTL_MIN = 10            # a code is valid for 10 minutes
@@ -125,16 +138,47 @@ async def me(user: dict = Depends(get_current_user)):
 
 
 @router.post("/auth/change-password")
-async def change_password(body: ChangePasswordInput, response: Response, user: dict = Depends(get_current_user)):
-    """Any logged-in user can change their own password (verifies the current one)."""
+async def change_password(body: ChangePasswordInput, request: Request, response: Response,
+                          user: dict = Depends(get_current_user)):
+    """Any logged-in user can change their own password (verifies the current one).
+
+    item 11: three wrong current-password tries lock this path. While locked, the
+    user must reset with a one-time code sent to their recovery email + phone
+    (see /auth/change-password/challenge)."""
     if not body.new or len(body.new) < 8:
         raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
     full = await db.users.find_one({"id": user["id"]})
-    if not full or not verify_password(body.current, full["password_hash"]):
+    if not full:
         raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    # Already locked out → stop before touching the password; steer to OTP reset.
+    if (full.get("pw_change_fail_count") or 0) >= PW_CHANGE_MAX_FAILED:
+        raise HTTPException(
+            status_code=423,
+            detail={"message": "Too many failed attempts. Reset your password with the code we can send to your email and phone.",
+                    "reset_required": True},
+        )
+
+    if not verify_password(body.current, full["password_hash"]):
+        fails = (full.get("pw_change_fail_count") or 0) + 1
+        await db.users.update_one({"id": user["id"]}, {"$set": {"pw_change_fail_count": fails}})
+        locked = fails >= PW_CHANGE_MAX_FAILED
+        await log_audit(db, user, "user.password_change_failed", "user", user["id"], user.get("full_name"),
+                        {"attempts": fails, "locked": locked}, request)
+        if locked:
+            raise HTTPException(
+                status_code=423,
+                detail={"message": "Too many failed attempts. Reset your password with the code we can send to your email and phone.",
+                        "reset_required": True},
+            )
+        remaining = PW_CHANGE_MAX_FAILED - fails
+        raise HTTPException(status_code=400,
+                            detail=f"Current password is incorrect. {remaining} attempt(s) left before a reset is required.")
+
+    # Correct current password → set the new one and clear the failure counter.
     await db.users.update_one(
         {"id": user["id"]},
-        {"$set": {"password_hash": hash_password(body.new), "must_change_password": False}},
+        {"$set": {"password_hash": hash_password(body.new), "must_change_password": False, "pw_change_fail_count": 0}},
     )
     # Revoke every existing session (e.g. a stolen token), then re-issue for THIS one.
     tv = await revoke_tokens(db.users, user["id"])
@@ -143,6 +187,116 @@ async def change_password(body: ChangePasswordInput, response: Response, user: d
     set_auth_cookies(response, access, refresh)
     await log_audit(db, user, "user.password_changed", "user", user["id"], user.get("full_name"), {})
     return {"ok": True, "access_token": access, "refresh_token": refresh}
+
+
+def _mask_email(email: str) -> str:
+    """'jane.doe@example.com' -> 'j***@example.com' (never echo the full address)."""
+    if not email or "@" not in email:
+        return ""
+    local, _, domain = email.partition("@")
+    return f"{local[0]}***@{domain}" if local else f"***@{domain}"
+
+
+@router.post("/auth/change-password/challenge")
+async def change_password_challenge(request: Request, user: dict = Depends(get_current_user)):
+    """item 11 — start the OTP reset for the password-change flow.
+
+    Issues ONE code and delivers it to both the account's recovery email and
+    phone. Respects the resend cooldown. The response reveals only masked channels
+    so nothing sensitive is echoed. Available whenever a user has forgotten their
+    current password; it is the required path once the change flow is locked."""
+    full = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    if not full:
+        raise HTTPException(status_code=404, detail="Account not found")
+    email = full.get("recovery_email") or full.get("email")
+    phone = full.get("phone")
+    if not email and not phone:
+        raise HTTPException(status_code=400,
+                            detail="No recovery email or phone on file. Ask an administrator to reset your password.")
+
+    now = datetime.now(timezone.utc)
+    # Anti-spam: respect the resend cooldown (same policy as forgot-password).
+    rows = await db.password_resets.find({"user_id": user["id"]}).sort("created_at", -1).to_list(1)
+    latest = rows[0] if rows else None
+    if latest and latest.get("sent_at"):
+        try:
+            if (now - datetime.fromisoformat(latest["sent_at"])).total_seconds() < OTP_RESEND_COOLDOWN_SEC:
+                return {"ok": True, "email": _mask_email(email or ""),
+                        "phone": (f"***{phone[-4:]}" if phone else ""),
+                        "message": "A code was just sent. Please wait a moment before requesting another."}
+        except Exception:
+            pass
+
+    code = _generate_otp()
+    await db.password_resets.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "otp_hash": hash_password(code),
+        "expires_at": (now + timedelta(minutes=OTP_TTL_MIN)).isoformat(),
+        "attempts": 0,
+        "sent_at": now.isoformat(),
+        "consumed": False,
+        "created_at": now.isoformat(),
+    })
+    channels = []
+    if email:
+        ok_e, info_e = await send_password_reset_otp(email, code, full.get("full_name"))
+        channels.append({"channel": "email", "delivered": ok_e, "info": info_e})
+    if phone:
+        ok_p, info_p = await send_sms_otp(phone, code, full.get("full_name"))
+        channels.append({"channel": "phone", "delivered": ok_p, "info": info_p})
+    await log_audit(db, user, "auth.password_change_reset_requested", "user", user["id"], user.get("full_name"),
+                    {"channels": channels}, request)
+    return {"ok": True, "email": _mask_email(email or ""),
+            "phone": (f"***{phone[-4:]}" if phone else ""),
+            "message": "We've sent a one-time code to your recovery email and phone."}
+
+
+@router.post("/auth/change-password/verify")
+async def change_password_verify(body: PwResetVerifyInput, request: Request, response: Response,
+                                 user: dict = Depends(get_current_user)):
+    """item 11 — finish the OTP reset: verify the code (sent to email+phone), set
+    the new password, clear the lockout, and re-issue this session."""
+    if not body.new_password or len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    invalid = HTTPException(status_code=400, detail="Invalid or expired code")
+    rows = await db.password_resets.find({"user_id": user["id"]}).sort("created_at", -1).to_list(1)
+    rec = rows[0] if rows else None
+    if not rec or rec.get("consumed"):
+        raise invalid
+    now = datetime.now(timezone.utc)
+    try:
+        expired = datetime.fromisoformat(rec["expires_at"]) < now
+    except Exception:
+        expired = True
+    if expired or (rec.get("attempts") or 0) >= OTP_MAX_ATTEMPTS:
+        await db.password_resets.update_one({"id": rec["id"]}, {"$set": {"consumed": True}})
+        raise invalid
+    if not verify_password(body.otp.strip(), rec["otp_hash"]):
+        attempts = (rec.get("attempts") or 0) + 1
+        patch = {"attempts": attempts}
+        if attempts >= OTP_MAX_ATTEMPTS:
+            patch["consumed"] = True
+        await db.password_resets.update_one({"id": rec["id"]}, {"$set": patch})
+        await log_audit(db, user, "auth.password_change_reset_failed", "user", user["id"], user.get("full_name"),
+                        {"attempts": attempts, "locked": attempts >= OTP_MAX_ATTEMPTS}, request)
+        raise invalid
+
+    # Success — set the password, clear the change lockout, burn the code, revoke
+    # every session (a reset often follows a lost/compromised credential), reissue.
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": hash_password(body.new_password),
+                  "must_change_password": False, "pw_change_fail_count": 0}},
+    )
+    await db.password_resets.update_one({"id": rec["id"]}, {"$set": {"consumed": True}})
+    tv = await revoke_tokens(db.users, user["id"])
+    access = create_access_token(user["id"], user["email"], user["role"], aal=int(user.get("aal") or 1), tv=tv)
+    refresh = create_refresh_token(user["id"], tv=tv)
+    set_auth_cookies(response, access, refresh)
+    await log_audit(db, user, "auth.password_change_reset_completed", "user", user["id"], user.get("full_name"), {}, request)
+    return {"ok": True, "access_token": access, "refresh_token": refresh,
+            "message": "Password updated."}
 
 
 @router.post("/auth/forgot-password")

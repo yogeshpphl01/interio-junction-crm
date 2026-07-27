@@ -4,6 +4,7 @@ import '../services.dart';
 import '../push/push_service.dart';
 import '../auth/login_screen.dart';
 import '../auth/mfa_screens.dart';
+import '../auth/change_password_screen.dart';
 import 'worklist_screen.dart';
 import 'projects_screen.dart';
 import 'privacy_queue_screen.dart';
@@ -66,6 +67,12 @@ class _CompanyShellState extends State<CompanyShell> {
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const PrivacyQueueScreen())),
             ),
+          IconButton(
+            icon: const Icon(Icons.key_outlined),
+            tooltip: 'Change password',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ChangePasswordScreen())),
+          ),
           IconButton(
             icon: const Icon(Icons.security),
             tooltip: 'Two-factor auth',

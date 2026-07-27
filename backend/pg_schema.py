@@ -80,6 +80,7 @@ SCHEMA: dict[str, dict] = {
             "created_by": "TEXT",
             "failed_login_count": "INTEGER",    # brute-force lockout (reset on success)
             "locked_until": "TEXT",             # ISO ts; login rejected while in the future
+            "pw_change_fail_count": "INTEGER",  # wrong current-password tries on change (item 11); locks the change path at PW_CHANGE_MAX_FAILED -> email+phone OTP reset
             # --- MFA (TOTP) ---
             "mfa_enrolled": "BOOLEAN",
             "mfa_secret": "TEXT",               # base32 TOTP secret — ENCRYPT AT REST (CMEK / field-level, C5/C6)
