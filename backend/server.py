@@ -6,6 +6,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -44,8 +45,35 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Storage init error: {e}")
     await _warn_shared_accounts()
+    retention_task = _start_retention_scheduler()
     yield
+    if retention_task:
+        retention_task.cancel()
     await db.close()
+
+
+def _start_retention_scheduler():
+    """Opt-in daily DPDP retention sweep (item 8). Off by default so it never runs
+    in dev/test unexpectedly; enable with RETENTION_SWEEP_ENABLED=1 in production.
+    The sweep itself is idempotent, so an occasional double-run is harmless."""
+    if os.environ.get("RETENTION_SWEEP_ENABLED", "").lower() not in ("1", "true", "yes", "on"):
+        return None
+    from retention import run_retention_sweep, SWEEP_INTERVAL_HOURS
+
+    async def _loop():
+        # Small initial delay so startup isn't blocked by the first sweep.
+        await asyncio.sleep(60)
+        while True:
+            try:
+                await run_retention_sweep()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Retention sweep failed: {e}")
+            await asyncio.sleep(SWEEP_INTERVAL_HOURS * 3600)
+
+    logger.info("Retention scheduler enabled (every %sh)", SWEEP_INTERVAL_HOURS)
+    return asyncio.create_task(_loop())
 
 
 async def _warn_shared_accounts():

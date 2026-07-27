@@ -192,6 +192,9 @@ SCHEMA: dict[str, dict] = {
             "lifecycle_phase": "TEXT",   # one of LIFECYCLE_PHASES
             "furthest_stage": "INTEGER", # highest pipeline stage ever reached (1..6)
             "delivered_at": "TEXT",      # when project handover/delivery happened
+            # --- DPDP retention (item 8): storage-limitation lifecycle for enquiry-only leads ---
+            "retention_notified_at": "TEXT",  # when the 7-day advance-erasure notice was sent
+            "retention_erased_at": "TEXT",    # when the 6-month retention sweep anonymized this lead
             # --- NEW: lead-journey tracking (granular drop-off) ---
             "dropped_stage": "INTEGER",  # stage at which the lead went cold/lost
             "dropped_at": "TEXT",

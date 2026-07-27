@@ -12,7 +12,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { toast, Toaster } from "sonner";
-import { ShieldCheck, Trash2, XCircle, CheckCircle2, RefreshCw } from "lucide-react";
+import { ShieldCheck, Trash2, XCircle, CheckCircle2, RefreshCw, Clock, Play } from "lucide-react";
 import { fmtDate } from "@/lib/format";
 
 const TABS = [
@@ -27,11 +27,32 @@ export default function PrivacyRequests() {
   const [tab, setTab] = useState("pending");
   const [busy, setBusy] = useState(null);
 
+  const [retention, setRetention] = useState(null);
+  const [retBusy, setRetBusy] = useState(false);
+
   const load = useCallback(async () => {
     try { setRows((await api.get(`/erasure-requests?status=${tab}`)).data); }
     catch (e) { toast.error(e?.response?.data?.detail || "Failed to load requests"); }
   }, [tab]);
   useEffect(() => { load(); }, [load]);
+
+  const loadRetention = useCallback(async () => {
+    try { setRetention((await api.get(`/retention/preview`)).data); }
+    catch { /* non-fatal: the panel simply stays hidden */ }
+  }, []);
+  useEffect(() => { loadRetention(); }, [loadRetention]);
+
+  const runRetention = async () => {
+    if (!window.confirm("Run the retention sweep now?\n\nEnquiry-only leads inactive for 6 months are notified, then anonymized 7 days after their notice. Project clients are only flagged for review, never auto-deleted.")) return;
+    setRetBusy(true);
+    try {
+      const { data } = await api.post(`/retention/run`); // step-up handled by the interceptor
+      toast.success(`Sweep done — ${data.notified} notified, ${data.erased} erased, ${data.review_due} to review`);
+      await Promise.all([loadRetention(), load()]);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail?.message || e?.response?.data?.detail || "Could not run sweep");
+    } finally { setRetBusy(false); }
+  };
 
   const erase = async (r) => {
     if (!window.confirm(`Erase ${r.customer_name || "this customer"}'s personal data?\n\nName, phone and email are anonymized across their record and leads. Transactional records (invoices etc.) are retained as the law requires. This cannot be undone.`)) return;
@@ -80,6 +101,38 @@ export default function PrivacyRequests() {
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
+
+      {retention && (
+        <div className="bg-bone-paper border border-edge rounded-md p-4 mb-6" data-testid="retention-panel">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-ink font-semibold flex items-center gap-2">
+                <Clock className="w-4 h-4 text-clay" /> Retention (storage limitation)
+              </h3>
+              <p className="text-ink-soft text-xs mt-1 max-w-xl">
+                Enquiry-only leads are kept 6 months, then anonymized after a 7-day notice. Project clients are
+                held 10 years for warranty/legal, then flagged for review. This preview makes no changes.
+              </p>
+            </div>
+            <button onClick={runRetention} disabled={retBusy} data-testid="retention-run"
+              className="inline-flex items-center gap-1.5 bg-clay text-white px-3 py-1.5 text-sm rounded-md hover:opacity-90 disabled:opacity-50 shrink-0">
+              <Play className="w-3.5 h-3.5" /> {retBusy ? "Running…" : "Run sweep now"}
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-3 mt-3">
+            {[
+              { k: "notified", label: "Notices due", v: retention.notified },
+              { k: "erased", label: "Erasures due", v: retention.erased },
+              { k: "review_due", label: "10-yr reviews", v: retention.review_due },
+            ].map((s) => (
+              <div key={s.k} data-testid={`retention-${s.k}`} className="bg-bone-subtle border border-edge rounded-md px-3 py-2">
+                <div className="text-2xl font-serif text-ink leading-none">{s.v ?? 0}</div>
+                <div className="text-[11px] uppercase tracking-wide text-ink-soft mt-1">{s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-1 mb-4">
         {TABS.map((t) => (
