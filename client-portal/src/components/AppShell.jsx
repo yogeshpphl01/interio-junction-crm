@@ -4,7 +4,7 @@
   who's signed in and a sign-out control. Content renders via <Outlet/>.
 */
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Home, FileText, PenTool, Wallet, FolderOpen, MessageCircle, LogOut } from "lucide-react";
+import { Home, FileText, PenTool, Wallet, FolderOpen, MessageCircle, LogOut, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ const NAV = [
   { to: "/payments", label: "Payments", icon: Wallet },
   { to: "/documents", label: "Documents", icon: FolderOpen },
   { to: "/chat", label: "Messages", icon: MessageCircle },
+  { to: "/privacy", label: "Privacy", icon: ShieldCheck },
 ];
 
 function initials(name) {
