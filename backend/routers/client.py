@@ -616,8 +616,38 @@ async def client_document_signed_url(doc_id: str, customer: dict = Depends(get_c
 #   data portability (export), and right to erasure (§11-13) via a request the
 #   business actions (transactional records are retained per §8(7) retention).
 # </section>
-CONSENT_PURPOSES = {"data_processing", "marketing", "whatsapp_updates"}
-PRIVACY_POLICY_VERSION = "2026-01"
+# <consent-catalog> DPDP purposes, itemized (Rule 3). "necessary" purposes are
+# required to deliver the service; "optional" ones are separately declinable so
+# consent stays *free* — notably ai_training + analytics, which per the DPDP Act
+# must be a distinct opt-in the customer can refuse without losing the service.
+# See docs/security/DPDPA_COMPLIANCE.md.
+CONSENT_CATALOG = {
+    "service": {
+        "label": "Provide my interior project & support",
+        "description": "Respond to my enquiry, design and build my project, and handle support & warranty.",
+        "category": "necessary", "default": True,
+    },
+    "ai_training": {
+        "label": "Improve services & build AI features",
+        "description": "Use my data (de-identified where possible) to build and train AI models and provide AI-assisted features.",
+        "category": "optional", "default": False,
+    },
+    "analytics": {
+        "label": "Analytics & service improvement",
+        "description": "Use my data for analytics to improve products and experience.",
+        "category": "optional", "default": False,
+    },
+    "marketing": {
+        "label": "Offers & updates",
+        "description": "Send me offers and updates by email / SMS / WhatsApp.",
+        "category": "optional", "default": False,
+    },
+}
+CONSENT_PURPOSES = set(CONSENT_CATALOG)
+# Optional purposes may be freely granted/withdrawn; a necessary purpose can't be
+# "withdrawn" while using the service (withdrawing it means asking for erasure).
+NECESSARY_PURPOSES = {k for k, v in CONSENT_CATALOG.items() if v["category"] == "necessary"}
+PRIVACY_POLICY_VERSION = "2026-07"
 
 
 class ConsentIn(BaseModel):
@@ -636,6 +666,9 @@ async def client_record_consent(body: ConsentIn, request: Request,
     """Record a consent decision (grant or withdraw). Append-only ledger."""
     if body.purpose not in CONSENT_PURPOSES:
         raise HTTPException(status_code=400, detail=f"Unknown purpose. Allowed: {sorted(CONSENT_PURPOSES)}")
+    if body.purpose in NECESSARY_PURPOSES and not body.granted:
+        raise HTTPException(status_code=400,
+            detail="This consent is required to provide the service. To stop all processing, request erasure instead.")
     row = {
         "id": str(uuid.uuid4()),
         "subject_type": "customer",
@@ -657,10 +690,12 @@ async def client_record_consent(body: ConsentIn, request: Request,
 async def client_get_consent(customer: dict = Depends(get_current_customer)):
     """Current consent state (latest decision per purpose) + full history."""
     rows = await db.consents.find({"subject_id": customer["id"]}, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    current = {}
-    for r in rows:  # rows are newest-first, so the first seen per purpose is current
-        current.setdefault(r["purpose"], r["granted"])
-    return {"policy_version": PRIVACY_POLICY_VERSION, "current": current, "history": rows}
+    decided = {}
+    for r in rows:  # rows are newest-first, so the first seen per purpose is the latest decision
+        decided.setdefault(r["purpose"], r["granted"])
+    # Effective state = latest decision per purpose, else the catalog default.
+    current = {p: decided.get(p, CONSENT_CATALOG[p]["default"]) for p in CONSENT_CATALOG}
+    return {"policy_version": PRIVACY_POLICY_VERSION, "catalog": CONSENT_CATALOG, "current": current, "history": rows}
 
 
 @router.get("/client/me/export")
@@ -690,9 +725,28 @@ async def client_export_data(customer: dict = Depends(get_current_customer)):
 @router.post("/client/me/erasure-request")
 async def client_request_erasure(body: ErasureIn, request: Request,
                                  customer: dict = Depends(get_current_customer)):
-    """Right to erasure: lodge a request the business actions. Idempotent — a
-    pending request is reused. Actual erasure is a controlled staff step so that
-    transactional/tax records can be retained per DPDP §8(7)."""
+    """Right to erasure (DPDP §12).
+
+    • Enquiry-only customers (never started a project) are erased IMMEDIATELY,
+      self-service (item 10) — there's no warranty/legal reason to retain them.
+    • Project clients are retained for the 10-year warranty/legal period
+      (DPDP §8(7)), so their request is queued for staff review + controlled
+      erasure once that basis lapses.
+    """
+    pids = await _my_project_ids(customer)
+    if not pids:
+        # Enquiry-only → immediate self-service erasure (anonymize + kill sessions).
+        from routers.privacy import _anonymize_customer  # lazy import (avoids any cycle)
+        await _anonymize_customer(customer["id"])
+        await db.erasure_requests.update_one(
+            {"customer_id": customer["id"], "status": "pending"},
+            {"$set": {"status": "completed", "decided_at": now_iso(), "note": "self-service (enquiry-only)"}})
+        await log_audit(db, None, "privacy.erased", "customer", customer["id"], customer.get("full_name"),
+                        {"channel": "self_service", "basis": "enquiry_only"}, request)
+        return {"ok": True, "status": "erased",
+                "message": "Your data has been deleted. Only non-identifying records the law requires us to keep are retained."}
+
+    # Project client → queue for staff review (retained per DPDP §8(7)). Idempotent.
     existing = await db.erasure_requests.find_one(
         {"customer_id": customer["id"], "status": "pending"}, {"_id": 0})
     if existing:
@@ -709,4 +763,92 @@ async def client_request_erasure(body: ErasureIn, request: Request,
     await log_audit(db, None, "privacy.erasure_requested", "customer", customer["id"], customer.get("full_name"),
                     {"request_id": row["id"]}, request)
     return {"ok": True, "status": "pending", "request_id": row["id"],
-            "message": "Your erasure request has been received. We'll process it per the DPDP Act."}
+            "message": "You have an active project, so we keep records for the warranty/legal period. "
+                       "Your request has been logged and our team will action it per the DPDP Act."}
+
+
+# ---- Right to correction: change email / phone (item 9), verified by OTP ----
+
+class ContactChangeIn(BaseModel):
+    field: str            # "email" | "phone"
+    new_value: str
+
+
+class ContactVerifyIn(BaseModel):
+    field: str
+    code: str
+
+
+@router.post("/client/me/change-contact")
+async def client_change_contact_start(body: ContactChangeIn, request: Request,
+                                      customer: dict = Depends(get_current_customer)):
+    """Start an email/phone change (DPDP right to correction). Sends a one-time
+    code to the NEW value; the change only applies after /verify, so an account
+    can't be silently re-pointed. The new value must be free."""
+    field = (body.field or "").lower().strip()
+    if field not in ("email", "phone"):
+        raise HTTPException(status_code=400, detail="field must be 'email' or 'phone'")
+    if field == "phone":
+        new_value = normalize_phone(body.new_value)
+        if not new_value:
+            raise HTTPException(status_code=400, detail="Enter a valid 10-digit phone number")
+        if new_value == customer.get("phone"):
+            raise HTTPException(status_code=400, detail="That's already your number")
+    else:
+        new_value = (body.new_value or "").strip().lower()
+        if "@" not in new_value or "." not in new_value.split("@")[-1]:
+            raise HTTPException(status_code=400, detail="Enter a valid email address")
+        if new_value == (customer.get("email") or "").lower():
+            raise HTTPException(status_code=400, detail="That's already your email")
+    if await db.customers.find_one({field: new_value, "id": {"$ne": customer["id"]}}):
+        raise HTTPException(status_code=409, detail=f"That {field} is already in use")
+
+    code = _generate_otp()
+    now = datetime.now(timezone.utc)
+    await db.contact_change_requests.insert_one({   # latest row per customer+field wins
+        "id": str(uuid.uuid4()), "customer_id": customer["id"], "field": field,
+        "new_value": new_value, "otp_hash": hash_password(code),
+        "expires_at": (now + timedelta(minutes=OTP_TTL_MIN)).isoformat(),
+        "attempts": 0, "consumed": False, "created_at": now.isoformat(),
+    })
+    await _deliver_customer_otp(new_value, code, customer.get("full_name"))   # SMS/email stub → logged
+    await log_audit(db, None, "client.contact_change_requested", "customer", customer["id"],
+                    customer.get("full_name"), {"field": field}, request)
+    return {"ok": True, "message": f"We sent a verification code to your new {field}."}
+
+
+@router.post("/client/me/change-contact/verify")
+async def client_change_contact_verify(body: ContactVerifyIn, request: Request,
+                                       customer: dict = Depends(get_current_customer)):
+    """Confirm the code and apply the email/phone change."""
+    field = (body.field or "").lower().strip()
+    if field not in ("email", "phone"):
+        raise HTTPException(status_code=400, detail="field must be 'email' or 'phone'")
+    invalid = HTTPException(status_code=400, detail="Invalid or expired code")
+    rows = await db.contact_change_requests.find(
+        {"customer_id": customer["id"], "field": field}).sort("created_at", -1).to_list(1)
+    if not rows:
+        raise invalid
+    rec = rows[0]
+    now = datetime.now(timezone.utc)
+    if rec.get("consumed") or datetime.fromisoformat(rec["expires_at"]) < now:
+        raise invalid
+    if (rec.get("attempts") or 0) >= OTP_MAX_ATTEMPTS:
+        await db.contact_change_requests.update_one({"id": rec["id"]}, {"$set": {"consumed": True}})
+        raise invalid
+    if not verify_password(body.code.strip(), rec["otp_hash"]):
+        await db.contact_change_requests.update_one(
+            {"id": rec["id"]}, {"$set": {"attempts": (rec.get("attempts") or 0) + 1}})
+        raise invalid
+    new_value = rec["new_value"]
+    if await db.customers.find_one({field: new_value, "id": {"$ne": customer["id"]}}):
+        raise HTTPException(status_code=409, detail=f"That {field} is now in use")
+    await db.contact_change_requests.update_one({"id": rec["id"]}, {"$set": {"consumed": True}})
+    await db.customers.update_one({"id": customer["id"]}, {"$set": {field: new_value}})
+    if field == "phone":
+        # keep the customer's leads in sync so login-by-phone still resolves them
+        for lid in await _my_lead_ids(customer):
+            await db.leads.update_one({"id": lid}, {"$set": {"phone": new_value}})
+    await log_audit(db, None, "client.contact_changed", "customer", customer["id"],
+                    customer.get("full_name"), {"field": field}, request)
+    return {"ok": True, "field": field, "message": f"Your {field} has been updated."}

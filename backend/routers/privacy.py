@@ -97,3 +97,24 @@ async def reject_erasure(request_id: str, request: Request,
     await log_audit(db, admin, "privacy.erasure_rejected", "customer", rec.get("customer_id"), None,
                     {"request_id": request_id}, request)
     return {"ok": True, "status": "rejected"}
+
+
+@router.get("/retention/preview")
+async def retention_preview(admin: dict = Depends(require_permission("users.manage"))):
+    """Dry-run the DPDP retention sweep (item 8): how many enquiry leads would be
+    notified/erased and how many project clients are due for 10-year review — no
+    changes made. Lets staff see the impact before enabling the scheduler."""
+    from retention import run_retention_sweep
+    return await run_retention_sweep(dry_run=True)
+
+
+@router.post("/retention/run")
+async def retention_run(request: Request, admin: dict = Depends(require_permission("users.manage"))):
+    """Run the DPDP retention sweep now (idempotent). A fresh step-up is required
+    because it can anonymize records. Normally the daily scheduler handles this;
+    this is the on-demand/ops path."""
+    await assert_step_up(request, admin)
+    from retention import run_retention_sweep
+    summary = await run_retention_sweep()
+    await log_audit(db, admin, "retention.sweep_ran", "system", None, None, summary, request)
+    return {"ok": True, **summary}

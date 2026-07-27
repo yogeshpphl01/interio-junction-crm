@@ -96,6 +96,29 @@ class EmployeeAuthRepository {
     return ((d['backup_codes'] as List?) ?? const []).cast<String>();
   }
 
+  /// Re-verify the second factor for a sensitive action (e.g. a DPDP erasure).
+  /// Returns a short-lived elevation token to send as `X-Step-Up-Token`.
+  Future<String> stepUp(String code) async {
+    final d = await api.post('/auth/mfa/step-up', body: {'code': code}) as Map<String, dynamic>;
+    return d['elevation_token'] as String;
+  }
+
+  // ---- Change password (item 11) ----
+  /// Change the password by proving the current one. Throws ApiException(423)
+  /// once the change path is locked after too many wrong tries — the caller then
+  /// falls back to [changePasswordChallenge] + [changePasswordVerify].
+  Future<void> changePassword(String current, String next) =>
+      api.post('/auth/change-password', body: {'current': current, 'new': next});
+
+  /// Send a one-time reset code to the account's recovery email AND phone.
+  /// Returns {email, phone (masked), message}.
+  Future<Map<String, dynamic>> changePasswordChallenge() async =>
+      (await api.post('/auth/change-password/challenge')) as Map<String, dynamic>;
+
+  /// Complete the reset with the emailed/texted code and a new password.
+  Future<void> changePasswordVerify(String otp, String newPassword) =>
+      api.post('/auth/change-password/verify', body: {'otp': otp, 'new_password': newPassword});
+
   Future<void> registerDevice(String fcmToken, {String? platform}) =>
       api.post('/devices', body: {'token': fcmToken, 'platform': platform});
 

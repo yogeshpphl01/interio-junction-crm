@@ -24,6 +24,7 @@ import Automations from "@/pages/Automations";
 import Settings from "@/pages/Settings";
 import Audit from "@/pages/Audit";
 import NotificationSettings from "@/pages/NotificationSettings";
+import PrivacyRequests from "@/pages/PrivacyRequests";
 
 export default function App() {
   return (
@@ -74,6 +75,14 @@ export default function App() {
               element={
                 <ProtectedRoute roles={["ceo", "admin"]} perm={["users.manage", "roles.manage"]}>
                   <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/privacy"
+              element={
+                <ProtectedRoute roles={["ceo", "admin"]} perm="users.manage">
+                  <PrivacyRequests />
                 </ProtectedRoute>
               }
             />

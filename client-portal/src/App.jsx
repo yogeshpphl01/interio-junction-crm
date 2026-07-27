@@ -18,6 +18,7 @@ import Designs from "@/pages/Designs";
 import Payments from "@/pages/Payments";
 import Documents from "@/pages/Documents";
 import Chat from "@/pages/Chat";
+import Privacy from "@/pages/Privacy";
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
               <Route path="/payments" element={<Payments />} />
               <Route path="/documents" element={<Documents />} />
               <Route path="/chat" element={<Chat />} />
+              <Route path="/privacy" element={<Privacy />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

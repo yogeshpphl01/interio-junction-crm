@@ -80,6 +80,7 @@ SCHEMA: dict[str, dict] = {
             "created_by": "TEXT",
             "failed_login_count": "INTEGER",    # brute-force lockout (reset on success)
             "locked_until": "TEXT",             # ISO ts; login rejected while in the future
+            "pw_change_fail_count": "INTEGER",  # wrong current-password tries on change (item 11); locks the change path at PW_CHANGE_MAX_FAILED -> email+phone OTP reset
             # --- MFA (TOTP) ---
             "mfa_enrolled": "BOOLEAN",
             "mfa_secret": "TEXT",               # base32 TOTP secret — ENCRYPT AT REST (CMEK / field-level, C5/C6)
@@ -191,6 +192,9 @@ SCHEMA: dict[str, dict] = {
             "lifecycle_phase": "TEXT",   # one of LIFECYCLE_PHASES
             "furthest_stage": "INTEGER", # highest pipeline stage ever reached (1..6)
             "delivered_at": "TEXT",      # when project handover/delivery happened
+            # --- DPDP retention (item 8): storage-limitation lifecycle for enquiry-only leads ---
+            "retention_notified_at": "TEXT",  # when the 7-day advance-erasure notice was sent
+            "retention_erased_at": "TEXT",    # when the 6-month retention sweep anonymized this lead
             # --- NEW: lead-journey tracking (granular drop-off) ---
             "dropped_stage": "INTEGER",  # stage at which the lead went cold/lost
             "dropped_at": "TEXT",
@@ -584,6 +588,29 @@ SCHEMA: dict[str, dict] = {
         "indexes": [
             {"cols": [("customer_id", 1)], "unique": False},
             {"cols": [("status", 1)], "unique": False},
+        ],
+    },
+    # <table name="contact_change_requests">
+    #   <purpose>Right to correction (DPDP §12): a customer changing their email or
+    #   phone must verify the NEW value with a one-time code before it takes effect,
+    #   so an account can't be silently re-pointed. Only the code hash is stored.</purpose>
+    # </table>
+    "contact_change_requests": {
+        "pk": "id",
+        "columns": {
+            "id": "TEXT",
+            "customer_id": "TEXT",
+            "field": "TEXT",          # "email" | "phone"
+            "new_value": "TEXT",      # the new value being verified (normalized for phone)
+            "otp_hash": "TEXT",
+            "expires_at": "TEXT",
+            "attempts": "INTEGER",
+            "consumed": "BOOLEAN",
+            "created_at": "TEXT",
+        },
+        "json": [],
+        "indexes": [
+            {"cols": [("customer_id", 1)], "unique": False},
         ],
     },
 

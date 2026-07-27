@@ -233,6 +233,23 @@ async def send_password_reset_otp(to_email: str, code: str, full_name: Optional[
     return await _send_email([to_email], "Interio Junction · Your password reset code", html)
 
 
+async def send_sms_otp(phone: str, code: str, full_name: Optional[str] = None) -> tuple[bool, str]:
+    """Deliver a one-time code to a staff member's phone (item 11 — the second
+    channel for the password-change reset).
+
+    Delivery seam: no SMS/WhatsApp gateway is wired yet, so — exactly like the
+    customer OTP and email-reset stubs — the code is logged in development
+    (OTP_DEBUG_LOG) and withheld otherwise. Swapping in Twilio / MSG91 / WhatsApp
+    is a one-branch change here; the reset flow itself is channel-agnostic."""
+    from auth_utils import otp_debug_logging
+    if otp_debug_logging():
+        logger.warning(f"[DEV OTP] SMS gateway not configured — reset code for {phone}: {code}")
+        return False, "SMS gateway not configured (code logged to server — DEV)"
+    logger.info(f"[OTP] reset code issued for ***{phone[-4:] if phone else ''} "
+                "(SMS delivery pending; set OTP_DEBUG_LOG in dev)")
+    return False, "SMS gateway not configured (code withheld from logs)"
+
+
 async def send_test_email(db, to: str) -> tuple[bool, str]:
     html = _email_shell(
         "Test email from Interio Junction",
