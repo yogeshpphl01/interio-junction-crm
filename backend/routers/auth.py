@@ -26,6 +26,7 @@ from auth_utils import (
 from notifications import send_password_reset_otp, send_sms_otp
 from app_check import require_app_check
 from audit import log_audit
+from ratelimit import rate_limit
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -74,7 +75,7 @@ async def _register_login_failure(user: dict) -> None:
     await db.users.update_one({"id": user["id"]}, {"$set": patch})
 
 
-@router.post("/auth/login")
+@router.post("/auth/login", dependencies=[Depends(rate_limit("auth_login", 30, 300))])
 async def login(input: LoginInput, response: Response, request: Request, _ac: None = Depends(require_app_check)):
     email = input.email.lower().strip()
     user = await db.users.find_one({"email": email})
@@ -299,7 +300,7 @@ async def change_password_verify(body: PwResetVerifyInput, request: Request, res
             "message": "Password updated."}
 
 
-@router.post("/auth/forgot-password")
+@router.post("/auth/forgot-password", dependencies=[Depends(rate_limit("auth_forgot", 8, 900))])
 async def forgot_password(body: ForgotPasswordInput, request: Request):
     """Step 1 — issue a one-time reset code to the account's recovery email.
 
@@ -342,7 +343,7 @@ async def forgot_password(body: ForgotPasswordInput, request: Request):
     return generic
 
 
-@router.post("/auth/reset-password")
+@router.post("/auth/reset-password", dependencies=[Depends(rate_limit("auth_reset", 15, 900))])
 async def reset_password_with_otp(body: ResetPasswordInput, request: Request):
     """Step 2 — verify the OTP and set a new password.
 

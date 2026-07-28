@@ -38,6 +38,7 @@ from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
+from ratelimit import rate_limit
 
 from core import (
     db, get_current_customer, now_iso, STAGES, run_workflow_notify_designer,
@@ -191,7 +192,7 @@ class RefreshIn(BaseModel):
     refresh_token: Optional[str] = None
 
 
-@router.post("/client/auth/request-otp")
+@router.post("/client/auth/request-otp", dependencies=[Depends(rate_limit("client_request_otp", 8, 600))])
 async def request_otp(body: RequestOtpIn, request: Request, _ac: None = Depends(require_app_check)):
     """
     Step 1 — issue a login code to a registered phone. The response is always the
@@ -270,7 +271,7 @@ async def _issue_customer_session(norm: str, leads: list[dict], request: Request
     return {"customer": customer, "access_token": access, "refresh_token": refresh, "token_type": "bearer"}
 
 
-@router.post("/client/auth/verify-otp")
+@router.post("/client/auth/verify-otp", dependencies=[Depends(rate_limit("client_verify_otp", 20, 600))])
 async def verify_otp(body: VerifyOtpIn, request: Request, _ac: None = Depends(require_app_check)):
     """Step 2 — verify the code and mint a customer session (access + refresh)."""
     invalid = HTTPException(status_code=400, detail="Invalid or expired code")

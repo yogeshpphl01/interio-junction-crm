@@ -77,6 +77,9 @@ services:
       PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:-}
       # Alert when one staff list read returns >= this many PII records.
       BULK_READ_ALERT_THRESHOLD: ${BULK_READ_ALERT_THRESHOLD:-100}
+      # Per-IP anti-abuse rate limiting on the auth/OTP endpoints (API4). ON by
+      # default; set to 0 to disable. Per-bucket overrides: RATE_LIMIT_<BUCKET>="MAX/SECS".
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-1}
       # Razorpay signed webhook + large-payment step-up (set when the gateway is live).
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
       PAYMENT_STEP_UP_THRESHOLD: ${PAYMENT_STEP_UP_THRESHOLD:-0}
