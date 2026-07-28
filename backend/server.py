@@ -138,3 +138,33 @@ async def security_headers(request, call_next):
     if request.url.path.startswith("/api"):
         resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+# <body-size-guard>
+#   Reject over-large request bodies early (OWASP API4 anti-DoS / CWE-770), keyed
+#   on Content-Length + content-type: JSON/text bodies are capped tight (no API
+#   endpoint needs a large JSON), while multipart uploads keep headroom for the
+#   25 MB document limit. Header-based — a proxy/WAF should also cap streaming
+#   bodies that omit Content-Length. Env-tunable, on by default, fail-open.
+# </body-size-guard>
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+@app.middleware("http")
+async def body_size_guard(request, call_next):
+    try:
+        if os.environ.get("BODY_LIMIT_ENABLED", "1").lower() in ("1", "true", "yes", "on"):
+            cl = request.headers.get("content-length")
+            if cl and cl.isdigit():
+                ctype = (request.headers.get("content-type") or "").lower()
+                jsonish = ctype.startswith("application/json") or ctype.startswith("text/")
+                limit = _int_env("MAX_JSON_BODY_BYTES", 2_000_000) if jsonish else _int_env("MAX_BODY_BYTES", 31_000_000)
+                if int(cl) > limit:
+                    return JSONResponse(status_code=413, content={"detail": "Request body too large."})
+    except Exception as e:  # never wedge the whole API on a guard bug
+        logger.warning("body-size guard error (allowing request): %s", e)
+    return await call_next(request)

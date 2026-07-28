@@ -80,6 +80,9 @@ services:
       # Per-IP anti-abuse rate limiting on the auth/OTP endpoints (API4). ON by
       # default; set to 0 to disable. Per-bucket overrides: RATE_LIMIT_<BUCKET>="MAX/SECS".
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-1}
+      # Request body-size cap (API4 anti-DoS). ON by default. JSON/text bodies are
+      # capped at MAX_JSON_BODY_BYTES; uploads (multipart) at MAX_BODY_BYTES.
+      BODY_LIMIT_ENABLED: ${BODY_LIMIT_ENABLED:-1}
       # Razorpay signed webhook + large-payment step-up (set when the gateway is live).
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
       PAYMENT_STEP_UP_THRESHOLD: ${PAYMENT_STEP_UP_THRESHOLD:-0}

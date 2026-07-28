@@ -151,7 +151,7 @@ concrete recommendation for this system.
 
 | # | Control | Standards | Status | Recommendation |
 |---|---|---|---|---|
-| I1 | Global rate limiting / quota (anti‑DoS) | **API4**; SC‑5; CWE‑770 | 🟡 | **Per‑IP rate limiting is live on the auth/OTP endpoints** (login, forgot/reset‑password, client request‑otp/verify‑otp) — sliding window, 429 + Retry‑After, env‑configurable, fail‑open (`backend/ratelimit.py`). Still to‑do: an **edge/gateway** limit across *all* endpoints + body‑size caps (pagination caps via `to_list` exist). |
+| I1 | Global rate limiting / quota (anti‑DoS) | **API4**; SC‑5; CWE‑770 | 🟡 | **Per‑IP rate limiting is live on the auth/OTP endpoints** (login, forgot/reset‑password, client request‑otp/verify‑otp) — sliding window, 429 + Retry‑After (`backend/ratelimit.py`). **Request body‑size caps are live** — content‑type‑aware (tight for JSON, headroom for the 25 MB document upload), 413 on oversize (`server.py` `body_size_guard`). Both env‑configurable + fail‑open; pagination caps via `to_list` exist. Still to‑do: an **edge/gateway** limit across *all* endpoints. |
 | I2 | WAF / DDoS protection at the edge | SC‑5; CIS 13 | ❌ | Front with Cloud Armor/WAF; bot protection on auth & import endpoints. |
 | I3 | Secure config / hardened defaults | **API8**; CM‑6/CM‑7 | 🟡 | Disable `/docs` (OpenAPI) in prod or auth‑gate it; remove server banners; run as non‑root; read‑only FS. |
 | I4 | API inventory & versioning | **API9**; CM‑8 | 🟡 contract documented (`API_CONTRACT.md`) | Version the API; retire/monitor old versions; no undocumented/debug routes in prod. |
