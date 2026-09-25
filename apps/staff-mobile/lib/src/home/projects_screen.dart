@@ -357,7 +357,7 @@ class _ScanSheetState extends State<_ScanSheet> {
 
 /// Raise a site/production ticket (contract §5.6).
 class TicketSheet extends StatefulWidget {
-  const TicketSheet({required this.projectId, this.prefillPartUid});
+  const TicketSheet({super.key, required this.projectId, this.prefillPartUid});
   final String projectId;
   final String? prefillPartUid;
 

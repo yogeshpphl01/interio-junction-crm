@@ -97,7 +97,7 @@ class StatusChip extends StatelessWidget {
     final c = color ?? Theme.of(context).colorScheme.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      decoration: BoxDecoration(color: c.withOpacity(0.14), borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(color: c.withAlpha(36), borderRadius: BorderRadius.circular(20)),
       child: Text(label, style: TextStyle(color: c, fontWeight: FontWeight.w600, fontSize: 12)),
     );
   }

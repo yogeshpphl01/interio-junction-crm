@@ -50,7 +50,7 @@ class _ProjectCard extends StatelessWidget {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: _stageColor.withOpacity(0.15),
+            color: _stageColor.withAlpha(38),
             child: Row(children: [
               Icon(Icons.circle, size: 10, color: _stageColor),
               const SizedBox(width: 8),
