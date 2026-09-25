@@ -114,7 +114,7 @@ jobs:
           path: backend/sbom.cyclonedx.json
 
   flutter-deps:
-    name: Flutter dependency scan
+    name: Flutter analyze, test and dependency scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -131,4 +131,25 @@ jobs:
           for app in apps/customer-mobile apps/staff-mobile shared/mobile-core; do
             echo "== $app =="
             (cd "$app" && flutter pub get && dart pub outdated || true)
+          done
+
+      # Compile-verification. `--no-fatal-infos` blocks the build on real errors
+      # and warnings but not on deprecation notices, which appear on their own
+      # whenever Flutter ships a new stable and would otherwise break CI with no
+      # code change. Verified locally on Flutter 3.47.5: mobile-core and
+      # customer-mobile are clean; staff-mobile has only `value:`→`initialValue`
+      # infos (that replacement needs Flutter >= 3.34, above our documented
+      # 3.22 floor, so it is deliberately not applied).
+      - name: analyze each app
+        run: |
+          for app in apps/customer-mobile apps/staff-mobile shared/mobile-core; do
+            echo "== analyze $app =="
+            (cd "$app" && flutter analyze --no-fatal-infos)
+          done
+
+      - name: unit + widget tests
+        run: |
+          for app in apps/customer-mobile apps/staff-mobile; do
+            echo "== test $app =="
+            (cd "$app" && flutter test)
           done
