@@ -36,6 +36,38 @@ class ClientRepository {
   Future<void> requestDesignChanges(String revId, String feedback) =>
       api.post('/client/designs/$revId/request-changes', body: {'feedback': feedback});
 
+  // ---- Documents (customer-visible only; bytes come via a signed URL) ----
+  Future<List<Map<String, dynamic>>> documents() async {
+    final d = await api.get('/client/documents') as Map<String, dynamic>;
+    return ((d['documents'] as List?) ?? const []).cast<Map<String, dynamic>>();
+  }
+
+  /// Mint a short-lived signed download link for one document.
+  /// Returns {url, expires_in, filename} — `url` is server-relative.
+  Future<Map<String, dynamic>> documentSignedUrl(String docId) async =>
+      (await api.get('/client/documents/$docId/signed-url')) as Map<String, dynamic>;
+
+  /// The same link, made absolute so it can be opened directly.
+  Future<String> documentDownloadUrl(String docId) async {
+    final res = await documentSignedUrl(docId);
+    return api.absoluteUrl((res['url'] ?? '').toString());
+  }
+
+  // ---- Chat with the project team ----
+  Future<List<Map<String, dynamic>>> chatThreads() async {
+    final d = await api.get('/client/chat') as Map<String, dynamic>;
+    return ((d['threads'] as List?) ?? const []).cast<Map<String, dynamic>>();
+  }
+
+  Future<List<Map<String, dynamic>>> chatMessages(String threadId) async {
+    final d = await api.get('/client/chat/$threadId/messages');
+    return (d as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> sendChatMessage(String threadId, String body) async =>
+      (await api.post('/client/chat/$threadId/messages', body: {'body': body}))
+          as Map<String, dynamic>;
+
   // ---- DPDP: consent + data-subject rights ----
   Future<Map<String, dynamic>> consent() async =>
       (await api.get('/client/me/consent')) as Map<String, dynamic>;

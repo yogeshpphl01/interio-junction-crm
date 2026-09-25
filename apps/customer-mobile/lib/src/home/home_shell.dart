@@ -8,9 +8,13 @@ import 'estimates_screen.dart';
 import 'designs_screen.dart';
 import 'payments_screen.dart';
 import 'privacy_screen.dart';
+import 'documents_screen.dart';
+import 'chat_screen.dart';
 
-/// The signed-in customer shell: four tabs over the Client BFF, one AppBar with
-/// sign-out. Tabs are kept alive by IndexedStack so switching doesn't reload.
+/// The signed-in customer shell: five tabs over the Client BFF, plus Documents
+/// and Privacy reached from the AppBar (they are occasional, not daily, so they
+/// stay out of the bottom bar). Tabs are kept alive by IndexedStack so switching
+/// doesn't reload.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -21,8 +25,8 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const _titles = ['My Project', 'Estimates', 'Designs', 'Payments'];
-  final _tabs = const [ProjectsTab(), EstimatesTab(), DesignsTab(), PaymentsTab()];
+  static const _titles = ['My Project', 'Estimates', 'Designs', 'Payments', 'Chat'];
+  final _tabs = const [ProjectsTab(), EstimatesTab(), DesignsTab(), PaymentsTab(), ChatTab()];
 
   @override
   void initState() {
@@ -49,6 +53,13 @@ class _HomeShellState extends State<HomeShell> {
         title: Text(_titles[_index]),
         actions: [
           IconButton(
+            icon: const Icon(Icons.folder_outlined),
+            tooltip: 'Documents',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const DocumentsScreen()),
+            ),
+          ),
+          IconButton(
             icon: const Icon(Icons.shield_outlined),
             tooltip: 'Privacy & consent',
             onPressed: () => Navigator.of(context).push(
@@ -67,6 +78,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Estimates'),
           NavigationDestination(icon: Icon(Icons.view_in_ar_outlined), selectedIcon: Icon(Icons.view_in_ar), label: 'Designs'),
           NavigationDestination(icon: Icon(Icons.payments_outlined), selectedIcon: Icon(Icons.payments), label: 'Payments'),
+          NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Chat'),
         ],
       ),
     );
