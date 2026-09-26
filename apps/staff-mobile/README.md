@@ -34,8 +34,9 @@ lib/
 
 ## Run
 
-No Flutter SDK is bundled in this repo's CI, so build on a machine with Flutter
-(3.22+). One-time platform-folder generation + deps, then run:
+CI runs `flutter analyze` and `flutter test` on every push, so the Dart is kept
+compiling. To run the app itself you need a local Flutter (3.22+) and a device or
+emulator. One-time platform-folder generation + deps, then run:
 
 ```bash
 flutter create .          # generates android/ ios/ … (git-ignored)

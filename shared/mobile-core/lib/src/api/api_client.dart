@@ -89,6 +89,17 @@ class ApiClient {
   /// per request so a refreshed token is always sent.
   final String? Function()? appCheckToken;
 
+  /// Turn a server-relative path (e.g. the "/api/documents/download?token=…"
+  /// that a signed-URL response returns) into an absolute URL against this
+  /// client's host, so it can be opened in a browser or viewer.
+  String absoluteUrl(String pathWithQuery) {
+    if (pathWithQuery.startsWith('http://') || pathWithQuery.startsWith('https://')) {
+      return pathWithQuery;
+    }
+    final base = Uri.parse(_dio.options.baseUrl);
+    return '${base.scheme}://${base.authority}$pathWithQuery';
+  }
+
   Future<dynamic> get(String path, {Map<String, dynamic>? query, Map<String, String>? headers}) =>
       _send('GET', path, query: query, headers: headers);
 

@@ -270,7 +270,7 @@ class _Note extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
+          color: Theme.of(context).colorScheme.primary.withAlpha(15),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(

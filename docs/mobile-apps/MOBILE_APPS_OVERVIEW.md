@@ -24,11 +24,13 @@ The apps import the shared package as `package:ij_core/…` (its Dart package na
 is still `ij_core`); each app's `pubspec.yaml` points at it via
 `path: ../../shared/mobile-core`.
 
-> **Status: scaffolding.** This is a runnable skeleton wired to the API contract —
-> the shared core, both auth flows, and both home screens. There is **no Flutter
-> SDK in the CI environment where this was generated**, so it has not been
-> `flutter pub get`/compiled here; do that on a machine with Flutter (see Setup).
-> Screens beyond the home feed are stubs to fill in against the contract.
+> **Status: compile-verified.** Both apps and the shared core resolve, analyze and
+> **build** on Flutter 3.47.5 / Dart 3.13.4, and each app ships passing unit +
+> widget tests (`flutter test`). CI now runs `flutter analyze --no-fatal-infos`
+> and `flutter test` on every push, so a Dart error can no longer land unnoticed.
+> The screens listed below are implemented, not stubs. What is still outstanding
+> is **device QA** (running on a real handset) and the integrations that need
+> credentials — push notifications (Firebase) and SMS OTP delivery.
 
 ---
 

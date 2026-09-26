@@ -22,7 +22,7 @@ Related: [`INFORMATION_SECURITY_POLICY.md`](INFORMATION_SECURITY_POLICY.md) ·
 | 8 | **Isolation (dual-BFF)** | Customer and staff are separate token families that are **mutually rejected**; customer portal is bearer-only (no cookies) |
 | 9 | **Tamper-evidence** | **Hash-chained audit log** (`audit.py`) with an on-demand `/audit/verify-chain` integrity check |
 | 10 | **Data protection** | AES-256-GCM field encryption for PII (`pii_crypto.py`) with blind indexes; secrets never logged |
-| 11 | **Brute-force resistance** | Login lockout with backoff; **change-password lockout → email+phone OTP reset** (item 11); OTPs hashed, short-TTL, attempt-capped |
+| 11 | **Brute-force & abuse resistance** | Per-account login lockout with backoff; **change-password lockout → email+phone OTP reset** (item 11); OTPs hashed, short-TTL, attempt-capped; **per-IP rate limiting on the auth/OTP endpoints** (`ratelimit.py`, API4) to stop spray/OTP-bombing across accounts |
 | 12 | **Instant revocation** | `token_version` bump invalidates all of a principal's tokens (on password change, erasure, reset) |
 | 13 | **Input validation** | Pydantic models validate/normalize every request body; parameterized DB access |
 | 14 | **Mobile hardening** | App Check/attestation gate, secure token storage, screen-capture protection, TLS cert pinning ([`MOBILE_SECURITY_STANDARDS.md`](MOBILE_SECURITY_STANDARDS.md)) |

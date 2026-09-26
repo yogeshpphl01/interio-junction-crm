@@ -38,7 +38,7 @@ class PaymentsTab extends StatelessWidget {
                       title: Text(p['milestone']?.toString() ?? (p['type']?.toString() ?? 'Payment')),
                       subtitle: Text([
                         p['method']?.toString(),
-                        p['paid_date']?.toString()?.split('T').first,
+                        p['paid_date']?.toString().split('T').first,
                       ].whereType<String>().join(' · ')),
                       trailing: Text(inr(p['amount'] as num?),
                           style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -65,7 +65,7 @@ class _SummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       elevation: 0,
-      color: Theme.of(context).colorScheme.primary.withOpacity(0.08),
+      color: Theme.of(context).colorScheme.primary.withAlpha(20),
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(children: [
